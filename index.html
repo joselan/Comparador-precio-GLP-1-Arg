@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comparador precios GLP-1 Argentina</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Firebase SDK (Versión Compat para HTML simple) -->
+    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
+
+    <!-- React & Babel -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { margin: 0; padding: 0; transition: background-color 0.3s; }
+        #root:empty { min-height: 100vh; background-color: #f8fafc; }
+        .no-select { user-select: none; -webkit-user-select: none; }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+
+        // ==========================================
+        // CONFIGURACIÓN DE FIREBASE (Tus datos reales)
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyAY7dHhkuR8hu582U6O4fi1q5hNUNNedp8",
+            authDomain: "comparador-precios-glp-1-arg.firebaseapp.com",
+            projectId: "comparador-precios-glp-1-arg",
+            storageBucket: "comparador-precios-glp-1-arg.firebasestorage.app",
+            messagingSenderId: "386577878312",
+            appId: "1:386577878312:web:d1dec769f1bf123c72941d"
+        };
+
+        // Inicializar Firebase solo una vez
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const firestore = firebase.firestore();
+        // ==========================================
+
+        const Icons = {
+            Logo: () => <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/><circle cx="6" cy="6" r="4.5" fill="currentColor" fillOpacity="0.15"/><path d="M6 3v6M4.5 5h3M4.5 7h3"/></svg>,
+            Help: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>,
+            Sun: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>,
+            Moon: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>,
+            Pill: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 4 4 14a5.5 5.5 0 0 0 7.78 7.78l10-10a5.5 5.5 0 0 0-7.78-7.78z"></path><line x1="14" y1="4" x2="20" y2="10"></line></svg>,
+            Split: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg>,
+            Close: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,
+            Upload: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>,
+            Save: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        };
+
+        const defaultDb = {
+            Mounjaro: { lab: 'Adium', psp: 'Con Voz', hasPsp: true, pspType: 'fixed', pspValue: 0.30, canSplit: true, color: 'bg-blue-600', doses: [ { name: '2.5mg (KwikPen x1)', pvp: 612576.68 }, { name: '5mg (KwikPen x1)', pvp: 829980.63 } ] },
+            Ozempic: { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'progressive', canSplit: true, color: 'bg-teal-600', doses: [ { name: '0.25mg / 0.5mg (1.5ml + 6 ag)', pvp: 322213.46 }, { name: '1mg (3ml + 4 ag)', pvp: 386656.15 } ] },
+            Wegovy: { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'progressive', canSplit: true, color: 'bg-teal-500', doses: [ { name: '0.25mg (1.5ml + 4 ag)', pvp: 322213.46 }, { name: '0.5mg (1.5ml + 4 ag)', pvp: 322213.46 }, { name: '1mg (3ml + 4 ag)', pvp: 386656.15 }, { name: '1.7mg (3ml + 4 ag)', pvp: 541318.63 }, { name: '2.4mg (3ml + 4 ag)', pvp: 757846.07 } ] },
+            Dutide: { lab: 'Elea', psp: '-', hasPsp: false, canSplit: false, color: 'bg-purple-600', doses: [ { name: '0.25mg (x4)', pvp: 114334.23 }, { name: '0.5mg (x4)', pvp: 131478.58 }, { name: '1mg (x4)', pvp: 148738.76 } ] },
+            Obetide: { lab: 'Elea', psp: '-', hasPsp: false, canSplit: false, color: 'bg-purple-500', doses: [ { name: '0.25mg (x4)', pvp: 114334.23 }, { name: '0.5mg (x4)', pvp: 131478.58 }, { name: '1mg (x4)', pvp: 148738.76 }, { name: '1.7mg (x4)', pvp: 196450.34 }, { name: '2.4mg (x4)', pvp: 256527.14 } ] }
+        };
+
+        const formatCurrency = (val) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
+
+        function App() {
+            // Estado Principal de la BD
+            const [db, setDb] = useState(defaultDb);
+            const [loadingDb, setLoadingDb] = useState(true);
+
+            // Estados de la Calculadora
+            const [med, setMed] = useState('Mounjaro');
+            const [doseIdx, setDoseIdx] = useState(0);
+            const [ooss, setOoss] = useState(0);
+            const [month, setMonth] = useState(1);
+            const [usePsp, setUsePsp] = useState(true);
+            const [isMonthly, setIsMonthly] = useState(false);
+            const [dark, setDark] = useState(false);
+            const [tut, setTut] = useState(false);
+
+            // Estados para el Panel de Administrador
+            const [clicks, setClicks] = useState(0);
+            const [showAdmin, setShowAdmin] = useState(false);
+
+            // CONTRASEÑA DE ADMINISTRADOR (Cámbiala por la que prefieras)
+            const ADMIN_PASSWORD = "31988204";
+
+            // 1. Cargar datos en Tiempo Real desde Firebase
+            useEffect(() => {
+                const unsubscribe = firestore.collection('config').doc('prices')
+                    .onSnapshot((doc) => {
+                        if (doc.exists && doc.data().db) {
+                            setDb(doc.data().db);
+                        } else {
+                            // Si no existe, usamos los de defecto
+                            setDb(defaultDb);
+                        }
+                        setLoadingDb(false);
+                    }, (error) => {
+                        console.error("Error obteniendo datos de Firebase:", error);
+                        // Si falla Firebase (ej. config vacía), usa locales para que la app no se rompa
+                        setDb(defaultDb); 
+                        setLoadingDb(false);
+                    });
+
+                return () => unsubscribe();
+            }, []);
+
+            // 2. Control de Interfaz
+            useEffect(() => {
+                const v = parseInt(localStorage.getItem('glp1_visits') || '0');
+                if (v < 5) setTut(true);
+                if (dark) document.documentElement.classList.add('dark');
+                else document.documentElement.classList.remove('dark');
+            }, [dark]);
+
+            // 3. Detector de los 5 clics + Contraseña
+            useEffect(() => {
+                if (clicks > 0 && clicks < 5) {
+                    const timer = setTimeout(() => setClicks(0), 1500); 
+                    return () => clearTimeout(timer);
+                }
+                if (clicks >= 5) {
+                    const pass = prompt("Acceso Restringido. Ingrese la contraseña de administrador:");
+                    if (pass === ADMIN_PASSWORD) {
+                        setShowAdmin(true);
+                    } else if (pass !== null) {
+                        alert("Contraseña incorrecta");
+                    }
+                    setClicks(0);
+                }
+            }, [clicks]);
+
+            const closeTut = () => {
+                const v = parseInt(localStorage.getItem('glp1_visits') || '0');
+                localStorage.setItem('glp1_visits', (v + 1).toString());
+                setTut(false);
+            };
+
+            const calc = (pvp, item, curMonth, oossPerc, activePsp, monthly) => {
+                const oossAmt = pvp * (oossPerc / 100);
+                const saldoPostOoss = pvp - oossAmt;
+                
+                let pspPerc = 0;
+                if (activePsp && item.hasPsp) {
+                    if (item.pspType === 'fixed') pspPerc = item.pspValue;
+                    else {
+                        if (curMonth <= 2) pspPerc = 0.25;
+                        else if (curMonth <= 4) pspPerc = 0.30;
+                        else pspPerc = 0.35;
+                    }
+                }
+
+                const pspAmt = saldoPostOoss * pspPerc;
+                const final = saldoPostOoss - pspAmt;
+                const perMonth = (monthly && item.canSplit) ? final / 2 : final;
+
+                return { pvp, oossAmt, pspAmt, final, perMonth, pspPerc };
+            };
+
+            const current = db[med] || defaultDb['Mounjaro'];
+            const activeDose = current.doses[doseIdx] || current.doses[0];
+            const res = calc(activeDose.pvp, current, month, ooss, usePsp, isMonthly);
+
+            const comparison = useMemo(() => {
+                let list = [];
+                Object.keys(db).forEach(k => {
+                    db[k].doses.forEach(d => {
+                        const r = calc(d.pvp, db[k], month, ooss, usePsp, isMonthly);
+                        list.push({ label: k, dose: d.name, ...r, color: db[k].color, canSplit: db[k].canSplit });
+                    });
+                });
+                return list.sort((a, b) => a.perMonth - b.perMonth);
+            }, [db, med, doseIdx, ooss, month, usePsp, isMonthly]);
+
+            // --- PANEL ADMINISTRADOR (Guarda en Firebase) ---
+            const AdminPanel = () => {
+                const [tempDb, setTempDb] = useState(JSON.parse(JSON.stringify(db))); 
+                const [previewImg, setPreviewImg] = useState(null);
+                const [isSaving, setIsSaving] = useState(false);
+
+                const handleImageUpload = (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (upload) => setPreviewImg(upload.target.result);
+                        reader.readAsDataURL(file);
+                    }
+                };
+
+                const updatePrice = (medKey, dIdx, newPrice) => {
+                    const updated = { ...tempDb };
+                    updated[medKey].doses[dIdx].pvp = parseFloat(newPrice) || 0;
+                    setTempDb(updated);
+                };
+
+                const saveToGlobal = async () => {
+                    setIsSaving(true);
+                    try {
+                        // Guarda en la colección 'config', documento 'prices'
+                        await firestore.collection('config').doc('prices').set({
+                            db: tempDb,
+                            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        setShowAdmin(false);
+                        alert("¡Los precios se han actualizado online para todos los usuarios exitosamente!");
+                    } catch (error) {
+                        console.error("Error guardando en Firebase:", error);
+                        alert("Hubo un error al guardar. Verifica que pusiste los datos correctos de Firebase en el archivo HTML. Detalle: " + error.message);
+                    }
+                    setIsSaving(false);
+                };
+
+                const restoreDefaults = () => {
+                    if(confirm("¿Estás seguro de restaurar los precios a los de defecto? (Aún deberás presionar 'Guardar' para publicarlos online)")) {
+                        setTempDb(JSON.parse(JSON.stringify(defaultDb)));
+                    }
+                };
+
+                return (
+                    <div className="fixed inset-0 z-[200] bg-slate-100 dark:bg-slate-900 overflow-y-auto flex flex-col">
+                        <header className="bg-slate-900 text-white p-4 shadow-md flex justify-between items-center sticky top-0 z-10">
+                            <div>
+                                <h2 className="text-xl font-bold flex items-center gap-2">
+                                    <Icons.Logo /> Actualizar Precios Globales (Firebase)
+                                </h2>
+                                <p className="text-xs text-slate-400">Los cambios aplicarán instantáneamente a todos los usuarios de la web.</p>
+                            </div>
+                            <div className="flex gap-3">
+                                <button onClick={() => setShowAdmin(false)} disabled={isSaving} className="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 font-semibold transition disabled:opacity-50">Cancelar</button>
+                                <button onClick={saveToGlobal} disabled={isSaving} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 font-bold flex items-center gap-2 transition disabled:opacity-50">
+                                    {isSaving ? "Guardando..." : <><Icons.Save /> Publicar Cambios Online</>}
+                                </button>
+                            </div>
+                        </header>
+
+                        <div className="flex-1 max-w-7xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {/* Lector de Imágenes */}
+                            <div className="flex flex-col gap-4">
+                                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                                    <h3 className="font-bold mb-2 flex items-center gap-2"><Icons.Upload /> Asistente de Carga Visual</h3>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Sube una captura de pantalla del listado de precios. Se mostrará aquí abajo para que puedas copiar los valores rápidamente.</p>
+                                    <input type="file" accept="image/*" onChange={handleImageUpload} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-slate-700 dark:file:text-white" />
+                                </div>
+                                
+                                {previewImg && (
+                                    <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex-1 sticky top-24 overflow-auto max-h-[70vh]">
+                                        <img src={previewImg} alt="Preview" className="w-full h-auto rounded-xl" />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Formulario de Precios */}
+                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-8">
+                                <div className="flex justify-between items-center mb-4 border-b dark:border-slate-700 pb-4">
+                                    <h3 className="text-lg font-black">Editor de Precios Manual</h3>
+                                    <button onClick={restoreDefaults} className="text-xs text-red-500 hover:underline">Restaurar Precios por Defecto</button>
+                                </div>
+
+                                {Object.keys(tempDb).map(medKey => (
+                                    <div key={medKey} className="space-y-3">
+                                        <h4 className="font-bold text-lg border-l-4 pl-3 flex items-center gap-2" style={{borderColor: tempDb[medKey].color.replace('bg-', '')}}>
+                                            {medKey} <span className="text-xs font-normal text-slate-400">({tempDb[medKey].lab})</span>
+                                        </h4>
+                                        <div className="space-y-2 pl-4">
+                                            {tempDb[medKey].doses.map((dose, dIdx) => (
+                                                <div key={dIdx} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-300 w-1/2">{dose.name}</span>
+                                                    <div className="relative w-full sm:w-1/2">
+                                                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 font-bold">$</span>
+                                                        <input 
+                                                            type="number" 
+                                                            step="0.01"
+                                                            value={dose.pvp}
+                                                            onChange={(e) => updatePrice(medKey, dIdx, e.target.value)}
+                                                            className="w-full pl-8 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:text-white font-mono"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            // Loading state
+            if (loadingDb) {
+                return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 dark:text-white"><div className="animate-pulse flex flex-col items-center"><Icons.Logo /><p className="mt-4 font-semibold">Cargando precios en vivo...</p></div></div>;
+            }
+
+            return (
+                <div className="min-h-screen text-slate-800 dark:text-slate-100 transition-colors">
+                    <header className="bg-white dark:bg-slate-800 border-b dark:border-slate-700 p-4 sticky top-0 z-40 shadow-sm">
+                        <div className="max-w-6xl mx-auto flex items-center justify-between">
+                            <div className="flex items-center gap-2 cursor-pointer no-select" onClick={() => setClicks(c => c + 1)} title="Clic 5 veces para acceder al Administrador">
+                                <span className="text-blue-500"><Icons.Logo /></span>
+                                <h1 className="text-xl md:text-2xl font-bold tracking-tight">Comparador precios GLP-1 Argentina</h1>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setTut(true)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition"><Icons.Help /></button>
+                                <button onClick={() => setDark(!dark)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition">
+                                    {dark ? <Icons.Sun /> : <Icons.Moon />}
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-6xl mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
+                        <aside className="lg:col-span-5 space-y-6">
+                            <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700">
+                                <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">Configuración</h3>
+                                
+                                <div className="space-y-6">
+                                    <div>
+                                        <label className="block text-sm font-semibold mb-2">Producto</label>
+                                        <select value={med} onChange={(e) => {setMed(e.target.value); setDoseIdx(0);}} className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-2xl focus:ring-2 ring-blue-500 outline-none">
+                                            {Object.keys(db).map(k => <option key={k} value={k}>{k}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-semibold mb-2">Dosis</label>
+                                        <select value={doseIdx} onChange={(e) => setDoseIdx(Number(e.target.value))} className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-2xl focus:ring-2 ring-blue-500 outline-none">
+                                            {current.doses.map((d, i) => <option key={i} value={i}>{d.name}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl space-y-4">
+                                        <label className="flex items-center gap-3 cursor-pointer group">
+                                            <input type="checkbox" checked={usePsp} onChange={e => setUsePsp(e.target.checked)} className="w-5 h-5 rounded border-slate-300 text-blue-500 focus:ring-blue-500" />
+                                            <span className="text-sm font-medium">Aplicar Descuento PSP ({current.psp})</span>
+                                        </label>
+                                        <label className={`flex items-start gap-3 cursor-pointer transition ${!current.canSplit ? 'opacity-30' : ''}`}>
+                                            <input type="checkbox" disabled={!current.canSplit} checked={isMonthly} onChange={e => setIsMonthly(e.target.checked)} className="w-5 h-5 mt-1 rounded border-slate-300 text-blue-500 focus:ring-blue-500" />
+                                            <div>
+                                                <span className="text-sm font-medium">Rendir lapicera 2 meses</span>
+                                                <p className="text-[10px] text-slate-400">Sólo para aplicadores con conteo de clics.</p>
+                                            </div>
+                                        </label>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-semibold mb-2">OOSS / Prepaga / Farmacia</label>
+                                        <select 
+                                            value={ooss} 
+                                            onChange={e => setOoss(Number(e.target.value))} 
+                                            className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-2xl focus:ring-2 ring-blue-500 outline-none"
+                                        >
+                                            {Array.from({ length: 21 }, (_, i) => i * 5).map(val => (
+                                                <option key={val} value={val}>{val}%</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-semibold mb-3">Tiempo de tratamiento</label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {[{l:'1-2 meses',v:1}, {l:'3-4 meses',v:3}, {l:'5+ meses',v:5}].map(b => (
+                                                <button key={b.v} onClick={() => setMonth(b.v)} className={`py-2 px-1 text-xs font-bold rounded-xl border transition ${month === b.v || (month === 5 && b.v === 5) || (month === 3 && b.v === 3) ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 border-slate-800' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
+                                                    {b.l}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </aside>
+
+                        <section className="lg:col-span-7 space-y-6">
+                            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-700">
+                                <div className={`h-4 ${current.color}`}></div>
+                                <div className="p-8">
+                                    <div className="flex justify-between items-start mb-8">
+                                        <div>
+                                            <h2 className="text-4xl font-black">{med}</h2>
+                                            <p className="text-slate-400 font-medium mt-1">{activeDose.name}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Laboratorio</span>
+                                            <span className="font-bold text-lg">{current.lab}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4 border-t border-b dark:border-slate-700 py-6 my-6">
+                                        <div className="flex justify-between items-center text-slate-500">
+                                            <span className="text-sm">Precio Venta Público (PVP)</span>
+                                            <span className="font-bold">{formatCurrency(res.pvp)}</span>
+                                        </div>
+
+                                        {usePsp && current.hasPsp ? (
+                                            <div className="flex justify-between items-center text-blue-600 dark:text-blue-400">
+                                                <span className="text-sm">Descuento PSP ({current.psp} - {(res.pspPerc*100).toFixed(0)}%)</span>
+                                                <span className="font-bold">- {formatCurrency(res.pspAmt)}</span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex justify-between items-center text-slate-300 line-through text-sm italic">
+                                                <span>Descuento PSP</span>
+                                                <span>No aplicado</span>
+                                            </div>
+                                        )}
+
+                                        {ooss > 0 && (
+                                            <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                                                <span className="text-sm">OOSS / Prepaga / Farmacia ({ooss}%)</span>
+                                                <span className="font-bold">- {formatCurrency(res.oossAmt)}</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-700">
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1 tracking-wider">Total Caja</span>
+                                            <div className="text-3xl font-black text-slate-900 dark:text-white">{formatCurrency(res.final)}</div>
+                                        </div>
+                                        {isMonthly && current.canSplit && (
+                                            <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-3xl border border-blue-100 dark:border-blue-900/50">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="text-blue-600"><Icons.Split /></span>
+                                                    <span className="text-[10px] uppercase font-bold text-blue-600 dark:text-blue-400 tracking-wider">Mensualizado</span>
+                                                </div>
+                                                <div className="text-3xl font-black text-blue-600 dark:text-blue-400">{formatCurrency(res.perMonth)}</div>
+                                                <p className="text-[9px] text-blue-400 mt-1">Estimado por 30 días de tratamiento</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
+                                <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                                    <Icons.Pill />
+                                    Ranking de Precios Finales
+                                </h3>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="text-slate-400 uppercase text-[10px] font-bold border-b dark:border-slate-700">
+                                            <tr>
+                                                <th className="pb-3 px-2">Producto</th>
+                                                <th className="pb-3 px-2">Dosis</th>
+                                                <th className="pb-3 px-2 text-right">Precio Caja</th>
+                                                <th className="pb-3 px-2 text-right text-blue-500 bg-blue-50/50 dark:bg-blue-900/10">Precio Mes</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y dark:divide-slate-700">
+                                            {comparison.map((item, i) => (
+                                                <tr key={i} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition ${item.label === med && item.dose === activeDose.name ? 'bg-blue-50/50 dark:bg-blue-900/20' : ''}`}>
+                                                    <td className="py-3 px-2 font-bold flex items-center gap-2 whitespace-nowrap">
+                                                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${item.color}`}></div>
+                                                        {item.label}
+                                                    </td>
+                                                    <td className="py-3 px-2 text-slate-400 text-xs min-w-[120px]">{item.dose}</td>
+                                                    <td className="py-3 px-2 text-right text-slate-400 italic whitespace-nowrap">{formatCurrency(item.final)}</td>
+                                                    <td className="py-3 px-2 text-right font-black bg-blue-50/50 dark:bg-blue-900/10 whitespace-nowrap">
+                                                        {formatCurrency(item.perMonth)}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </section>
+                    </main>
+
+                    {showAdmin && <AdminPanel />}
+
+                    {tut && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md">
+                            <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-[2.5rem] shadow-2xl relative overflow-hidden">
+                                <button onClick={closeTut} className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 transition"><Icons.Close /></button>
+                                <div className="p-10">
+                                    <div className="w-16 h-16 bg-blue-500 rounded-3xl flex items-center justify-center mb-6 text-white shadow-lg shadow-blue-500/30">
+                                        <Icons.Logo />
+                                    </div>
+                                    <h2 className="text-3xl font-black mb-4">Bienvenido al Comparador GLP-1</h2>
+                                    <p className="text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
+                                        Esta herramienta interactiva te permite comparar los costos de los medicamentos GLP-1 más comunes en Argentina, aplicando descuentos de laboratorios (PSP) y farmacias.
+                                    </p>
+                                    
+                                    <div className="space-y-6">
+                                        <div className="flex gap-4">
+                                            <div className="text-blue-500 mt-1"><Icons.Split /></div>
+                                            <div>
+                                                <h4 className="font-bold text-sm">Conteo de Clics</h4>
+                                                <p className="text-xs text-slate-400 mt-1">Activar "Mensualizar" para ver cuánto cuesta el mes de tratamiento, contando los clics y usando cada lapicera 2 meses(Mounjaro, Ozempic, Wegovy).</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-4">
+                                            <div className="text-emerald-500 mt-1"><Icons.Sun /></div>
+                                            <div>
+                                                <h4 className="font-bold text-sm">Lógica de Descuento</h4>
+                                                <p className="text-xs text-slate-400 mt-1">Primero configuramos el descuento de OOSS/Prepaga y el sistema calculará automáticamente el PSP sobre el saldo restante.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <button onClick={closeTut} className="w-full mt-10 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 rounded-2xl hover:scale-[1.02] transition shadow-xl">ENTENDIDO</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
