@@ -1,0 +1,31 @@
+name: Update GLP-1 Prices
+
+on:
+  schedule:
+    # Every 30 min, 7:00am–7:00pm Argentina (UTC-3) = 10:00–22:00 UTC
+    - cron: '0,30 10-21 * * *'
+    - cron: '0 22 * * *'
+  workflow_dispatch: # Allow manual trigger for testing
+
+jobs:
+  update-prices:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: scripts
+
+      - name: Run price updater
+        run: node update-prices.js
+        working-directory: scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
