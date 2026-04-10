@@ -194,9 +194,6 @@
             };
 
             const calc = (pvp, item, curMonth, oossPerc, activePsp, monthly) => {
-                const oossAmt = pvp * (oossPerc / 100);
-                const saldoPostOoss = pvp - oossAmt;
-                
                 let pspPerc = 0;
                 if (activePsp && item.hasPsp) {
                     if (item.pspType === 'fixed') pspPerc = item.pspValue;
@@ -207,8 +204,13 @@
                     }
                 }
 
-                const pspAmt = saldoPostOoss * pspPerc;
-                const final = saldoPostOoss - pspAmt;
+                // PSP se aplica sobre el PVP completo
+                const pspAmt = pvp * pspPerc;
+                const saldoPostPsp = pvp - pspAmt;
+
+                // OOSS/Farmacia se aplica sobre el saldo después del PSP
+                const oossAmt = saldoPostPsp * (oossPerc / 100);
+                const final = saldoPostPsp - oossAmt;
                 const perMonth = (monthly && item.canSplit) ? final / 2 : final;
 
                 return { pvp, oossAmt, pspAmt, final, perMonth, pspPerc };
@@ -556,13 +558,6 @@
                                             <span className="font-bold text-slate-700 dark:text-slate-200">{formatCurrency(res.pvp)}</span>
                                         </div>
 
-                                        {ooss > 0 && (
-                                            <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                                                <span className="text-sm">OOSS / Prepaga/Farmacia ({ooss}%)</span>
-                                                <span className="font-bold">- {formatCurrency(res.oossAmt)}</span>
-                                            </div>
-                                        )}
-
                                         {usePsp && current.hasPsp ? (
                                             <div className="flex justify-between items-center text-blue-600 dark:text-blue-400">
                                                 <span className="text-sm">Descuento PSP ({current.psp} - {(res.pspPerc*100).toFixed(0)}%)</span>
@@ -572,6 +567,13 @@
                                             <div className="flex justify-between items-center text-slate-300 dark:text-slate-600 line-through text-sm italic">
                                                 <span>Descuento PSP</span>
                                                 <span>No aplicado</span>
+                                            </div>
+                                        )}
+
+                                        {ooss > 0 && (
+                                            <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                                                <span className="text-sm">OOSS / Prepaga/Farmacia ({ooss}%)</span>
+                                                <span className="font-bold">- {formatCurrency(res.oossAmt)}</span>
                                             </div>
                                         )}
                                     </div>
