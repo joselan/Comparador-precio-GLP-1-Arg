@@ -29,3 +29,5 @@ jobs:
         working-directory: scripts
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # Google Chrome is pre-installed on ubuntu-latest runners
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome-stable
