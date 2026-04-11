@@ -17,6 +17,22 @@ const db = admin.firestore();
 // Google Chrome is pre-installed on GitHub Actions ubuntu-latest runners
 const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
 
+// Anti-detection: injected into every page before it loads
+const STEALTH_SCRIPT = () => {
+  // Remove webdriver flag (main bot detection signal)
+  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+  // Fake plugins (headless has 0 by default)
+  Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+  // Set realistic languages
+  Object.defineProperty(navigator, 'languages', { get: () => ['es-AR', 'es', 'en-US', 'en'] });
+  // Fake chrome runtime object
+  window.chrome = { runtime: {} };
+  // Remove automation-related properties
+  delete window.__nightmare;
+  delete window._phantom;
+  delete window.callPhantom;
+};
+
 // --- Medication config ---
 // Patterns based on exact kairosweb row text (verified from screenshots):
 //   Mounjaro:  "KwikPen 2.5mg /0.6ml Amp. x 1"  /  "KwikPen 5mg /0.6ml Amp. x 1"
@@ -82,10 +98,30 @@ function parsePrice(text) {
 async function fetchPage(browser, url) {
   const page = await browser.newPage();
   try {
+    // Inject stealth patches before any page script runs
+    await page.evaluateOnNewDocument(STEALTH_SCRIPT);
+
     await page.setUserAgent(
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     );
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'es-AR,es;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    });
+    await page.setViewport({ width: 1280, height: 800 });
+
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+
+    // Wait for price elements or log what we got instead
+    try {
+      await page.waitForSelector('.precio', { timeout: 8000 });
+    } catch (_) {
+      const title = await page.title();
+      const preview = await page.evaluate(() => document.body.innerText.substring(0, 200));
+      console.log(`  ⚠ .precio not found. Title: "${title}"`);
+      console.log(`  Body preview: ${preview.replace(/\s+/g, ' ')}`);
+    }
+
     return await page.content();
   } finally {
     await page.close();
@@ -140,6 +176,8 @@ async function main() {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
+      '--disable-blink-features=AutomationControlled', // hides automation signals
+      '--window-size=1280,800',
     ],
   });
 
