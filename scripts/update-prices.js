@@ -79,7 +79,7 @@ function parsePrice(text) {
   return parseFloat(clean.replace(/\./g, ''));
 }
 
-async function fetchPage(browser, url) {
+async function searchAlfabeta(browser, searchTerm) {
   const page = await browser.newPage();
   try {
     await page.setUserAgent(
@@ -91,6 +91,7 @@ async function fetchPage(browser, url) {
     });
     await page.setViewport({ width: 1280, height: 800 });
 
+<<<<<<< HEAD
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     // Extra wait for JS-rendered content or anti-bot challenges to resolve
@@ -98,6 +99,27 @@ async function fetchPage(browser, url) {
 
     const title = await page.title();
     console.log(`  Title: "${title}"`);
+=======
+    // Navigate to search page and wait for network to settle (captures AJAX)
+    await page.goto('https://www.alfabeta.net/precio/buscar.html', {
+      waitUntil: 'networkidle2',
+      timeout: 30000,
+    });
+
+    // Find and fill the search input, then submit
+    const inputSel = 'input[name="str"], input[type="search"], input[type="text"]';
+    await page.waitForSelector(inputSel, { timeout: 5000 });
+    await page.focus(inputSel);
+    await page.keyboard.type(searchTerm);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
+      page.keyboard.press('Enter'),
+    ]);
+
+    const title = await page.title();
+    const finalUrl = page.url();
+    console.log(`  Title: "${title}" | URL: ${finalUrl}`);
+>>>>>>> origin/claude/fix-publish-index-uo4Px
 
     return await page.content();
   } finally {
@@ -106,6 +128,7 @@ async function fetchPage(browser, url) {
 }
 
 async function scrapeMedication(browser, medName, config) {
+<<<<<<< HEAD
   const url = `https://www.alfabeta.net/precio/buscar.html?str=${encodeURIComponent(config.searchTerm)}`;
   console.log(`  URL: ${url}`);
 
@@ -130,6 +153,38 @@ async function scrapeMedication(browser, medName, config) {
     console.log(`  [price-el] <${tag} class="${cls}"> ${text.substring(0, 150)}`);
     priceElemsFound++;
     if (priceElemsFound >= 10) return false; // stop after 10
+=======
+  console.log(`  Searching: "${config.searchTerm}"`);
+
+  const html = await searchAlfabeta(browser, config.searchTerm);
+  const $ = cheerio.load(html);
+  const found = {};
+
+  // --- Debug: show more body text ---
+  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+  console.log(`  Body text (2000): ${bodyText.substring(0, 2000)}`);
+
+  // --- Debug: log all <tr> rows (price tables are usually in <table>) ---
+  const rows = [];
+  $('tr').each((_, el) => {
+    const text = $(el).text().replace(/\s+/g, ' ').trim();
+    if (text.length > 5 && text.length < 400) rows.push(text.substring(0, 200));
+  });
+  if (rows.length > 0) {
+    console.log(`  Table rows found (${rows.length}):`);
+    rows.slice(0, 15).forEach(r => console.log(`    • ${r}`));
+  } else {
+    console.log('  No <tr> rows found.');
+  }
+
+  // --- Debug: log raw HTML of any element with class containing "result", "precio", "price" ---
+  $('[class]').each((_, el) => {
+    const cls = $(el).attr('class') || '';
+    if (/result|precio|price|prod|medic/i.test(cls)) {
+      const text = $(el).text().replace(/\s+/g, ' ').trim().substring(0, 200);
+      console.log(`  [class="${cls}"] ${text}`);
+    }
+>>>>>>> origin/claude/fix-publish-index-uo4Px
   });
 
   if (priceElemsFound === 0) {
