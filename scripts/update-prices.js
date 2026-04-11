@@ -91,15 +91,6 @@ async function searchAlfabeta(browser, searchTerm) {
     });
     await page.setViewport({ width: 1280, height: 800 });
 
-<<<<<<< HEAD
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-    // Extra wait for JS-rendered content or anti-bot challenges to resolve
-    await new Promise(r => setTimeout(r, 4000));
-
-    const title = await page.title();
-    console.log(`  Title: "${title}"`);
-=======
     // Navigate to search page and wait for network to settle (captures AJAX)
     await page.goto('https://www.alfabeta.net/precio/buscar.html', {
       waitUntil: 'networkidle2',
@@ -119,7 +110,6 @@ async function searchAlfabeta(browser, searchTerm) {
     const title = await page.title();
     const finalUrl = page.url();
     console.log(`  Title: "${title}" | URL: ${finalUrl}`);
->>>>>>> origin/claude/fix-publish-index-uo4Px
 
     return await page.content();
   } finally {
@@ -128,32 +118,6 @@ async function searchAlfabeta(browser, searchTerm) {
 }
 
 async function scrapeMedication(browser, medName, config) {
-<<<<<<< HEAD
-  const url = `https://www.alfabeta.net/precio/buscar.html?str=${encodeURIComponent(config.searchTerm)}`;
-  console.log(`  URL: ${url}`);
-
-  const html = await fetchPage(browser, url);
-  const $ = cheerio.load(html);
-  const found = {};
-
-  // --- Debug: show body text preview ---
-  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
-  console.log(`  Body preview (500): ${bodyText.substring(0, 500)}`);
-
-  // --- Debug: log all leaf elements that contain price-like text ---
-  const pricePattern = /\$\s*[\d.,]{4,}/;
-  let priceElemsFound = 0;
-  $('*').each((_, el) => {
-    const children = $(el).children();
-    if (children.length > 0) return; // only leaf nodes
-    const text = $(el).text().trim();
-    if (!pricePattern.test(text) || text.length > 250) return;
-    const tag = el.tagName;
-    const cls = $(el).attr('class') || '';
-    console.log(`  [price-el] <${tag} class="${cls}"> ${text.substring(0, 150)}`);
-    priceElemsFound++;
-    if (priceElemsFound >= 10) return false; // stop after 10
-=======
   console.log(`  Searching: "${config.searchTerm}"`);
 
   const html = await searchAlfabeta(browser, config.searchTerm);
@@ -184,14 +148,7 @@ async function scrapeMedication(browser, medName, config) {
       const text = $(el).text().replace(/\s+/g, ' ').trim().substring(0, 200);
       console.log(`  [class="${cls}"] ${text}`);
     }
->>>>>>> origin/claude/fix-publish-index-uo4Px
   });
-
-  if (priceElemsFound === 0) {
-    console.log('  No price-like elements found on page.');
-  }
-
-  // TODO: fill in real parsing once we see the HTML structure from debug logs
 
   return found;
 }
