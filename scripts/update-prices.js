@@ -1,7 +1,7 @@
 /**
  * GLP-1 Price Updater
  * Uses Puppeteer (headless Chrome) + puppeteer-extra-plugin-stealth to scrape
- * arg.kairosweb.com and update Firebase Firestore with current PVP prices.
+ * www.alfabeta.net and update Firebase Firestore with current PVP prices.
  * Runs via GitHub Actions every 30 min from 7am to 7pm Argentina (UTC-3).
  */
 
@@ -10,7 +10,6 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const cheerio = require('cheerio');
 const admin = require('firebase-admin');
 
-// Apply all stealth evasions (webdriver flag, plugins, languages, chrome obj, etc.)
 puppeteer.use(StealthPlugin());
 
 // --- Firebase Init ---
@@ -22,53 +21,50 @@ const db = admin.firestore();
 const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
 
 // --- Medication config ---
-// Patterns based on exact kairosweb row text (verified from screenshots):
-//   Mounjaro:  "KwikPen 2.5mg /0.6ml Amp. x 1"  /  "KwikPen 5mg /0.6ml Amp. x 1"
-//   Ozempic:   "0.25mg /0.5mg/dosis Lap. Prell. x 1.5ml +6 Agujas"  /  "1mg /dosis Lap. Prell. x 3ml + 4 Agujas"
-//   Wegovy:    "0.25mg /dosis ..."  /  "0.5mg /dosis ..."  /  "1 mg /dosis ..."  /  "1.7mg /dosis ..."  /  "2.4mg /dosis ..."
-//   Dutide:    "0.25mg Jer. Prellenada x 4"  /  "0.5mg Jer. Prellenada x 4"  /  "1mg Jer. Prellenada x 4"
-//   Obetide:   idem Dutide + "1.7mg Jer. Prell. x 4"  /  "2.4mg Jer. Prell. x 4"
+// dbName must match the "name" field in Firebase dose objects.
+// searchTerm is appended to the alfabeta search URL.
+// doses[].pattern matches against the product description text on the results page.
 const MEDICATIONS = {
   Mounjaro: {
-    url: 'https://arg.kairosweb.com/precio/producto-mounjaro-31483/',
+    searchTerm: 'mounjaro',
     doses: [
       { dbName: '2.5mg (KwikPen x1)', pattern: /2[,.]5\s*mg/i },
-      { dbName: '5mg (KwikPen x1)',    pattern: /KwikPen\s+5\s*mg/i },
+      { dbName: '5mg (KwikPen x1)',    pattern: /\b5\s*mg/i },
     ],
   },
   Ozempic: {
-    url: 'https://arg.kairosweb.com/precio/producto-ozempic-28575/',
+    searchTerm: 'ozempic',
     doses: [
-      { dbName: '0.25mg / 0.5mg (1.5ml + 6 ag)', pattern: /0[,.]25\s*mg\s*\/\s*0[,.]5\s*mg/i },
-      { dbName: '1mg (3ml + 4 ag)',               pattern: /^1\s*mg/i },
+      { dbName: '0.25mg / 0.5mg (1.5ml + 6 ag)', pattern: /0[,.]25\s*mg.*0[,.]5\s*mg/i },
+      { dbName: '1mg (3ml + 4 ag)',               pattern: /\b1\s*mg/i },
     ],
   },
   Wegovy: {
-    url: 'https://arg.kairosweb.com/precio/producto-wegovy-31308/',
+    searchTerm: 'wegovy',
     doses: [
-      { dbName: '0.25mg (1.5ml + 4 ag)', pattern: /^0[,.]25\s*mg/i },
-      { dbName: '0.5mg (1.5ml + 4 ag)',  pattern: /^0[,.]5\s*mg/i },
-      { dbName: '1mg (3ml + 4 ag)',       pattern: /^1\s*mg/i },
-      { dbName: '1.7mg (3ml + 4 ag)',     pattern: /^1[,.]7\s*mg/i },
-      { dbName: '2.4mg (3ml + 4 ag)',     pattern: /^2[,.]4\s*mg/i },
+      { dbName: '0.25mg (1.5ml + 4 ag)', pattern: /0[,.]25\s*mg/i },
+      { dbName: '0.5mg (1.5ml + 4 ag)',  pattern: /0[,.]5\s*mg/i },
+      { dbName: '1mg (3ml + 4 ag)',       pattern: /\b1\s*mg/i },
+      { dbName: '1.7mg (3ml + 4 ag)',     pattern: /1[,.]7\s*mg/i },
+      { dbName: '2.4mg (3ml + 4 ag)',     pattern: /2[,.]4\s*mg/i },
     ],
   },
   Dutide: {
-    url: 'https://arg.kairosweb.com/precio/producto-dutide-inyectable-31011/',
+    searchTerm: 'dutide',
     doses: [
-      { dbName: '0.25mg (x4)', pattern: /^0[,.]25\s*mg/i },
-      { dbName: '0.5mg (x4)',  pattern: /^0[,.]5\s*mg/i },
-      { dbName: '1mg (x4)',    pattern: /^1\s*mg/i },
+      { dbName: '0.25mg (x4)', pattern: /0[,.]25\s*mg/i },
+      { dbName: '0.5mg (x4)',  pattern: /0[,.]5\s*mg/i },
+      { dbName: '1mg (x4)',    pattern: /\b1\s*mg/i },
     ],
   },
   Obetide: {
-    url: 'https://arg.kairosweb.com/precio/producto-obetide-31342/',
+    searchTerm: 'obetide',
     doses: [
-      { dbName: '0.25mg (x4)', pattern: /^0[,.]25\s*mg/i },
-      { dbName: '0.5mg (x4)',  pattern: /^0[,.]5\s*mg/i },
-      { dbName: '1mg (x4)',    pattern: /^1\s*mg/i },
-      { dbName: '1.7mg (x4)', pattern: /^1[,.]7\s*mg/i },
-      { dbName: '2.4mg (x4)', pattern: /^2[,.]4\s*mg/i },
+      { dbName: '0.25mg (x4)', pattern: /0[,.]25\s*mg/i },
+      { dbName: '0.5mg (x4)',  pattern: /0[,.]5\s*mg/i },
+      { dbName: '1mg (x4)',    pattern: /\b1\s*mg/i },
+      { dbName: '1.7mg (x4)', pattern: /1[,.]7\s*mg/i },
+      { dbName: '2.4mg (x4)', pattern: /2[,.]4\s*mg/i },
     ],
   },
 };
@@ -95,17 +91,13 @@ async function fetchPage(browser, url) {
     });
     await page.setViewport({ width: 1280, height: 800 });
 
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // Wait for price elements or log what we got instead
-    try {
-      await page.waitForSelector('.precio', { timeout: 10000 });
-    } catch (_) {
-      const title = await page.title();
-      const preview = await page.evaluate(() => document.body.innerText.substring(0, 300));
-      console.log(`  ⚠ .precio not found. Title: "${title}"`);
-      console.log(`  Body preview: ${preview.replace(/\s+/g, ' ')}`);
-    }
+    // Extra wait for JS-rendered content or anti-bot challenges to resolve
+    await new Promise(r => setTimeout(r, 4000));
+
+    const title = await page.title();
+    console.log(`  Title: "${title}"`);
 
     return await page.content();
   } finally {
@@ -114,43 +106,43 @@ async function fetchPage(browser, url) {
 }
 
 async function scrapeMedication(browser, medName, config) {
-  const html = await fetchPage(browser, config.url);
+  const url = `https://www.alfabeta.net/precio/buscar.html?str=${encodeURIComponent(config.searchTerm)}`;
+  console.log(`  URL: ${url}`);
+
+  const html = await fetchPage(browser, url);
   const $ = cheerio.load(html);
   const found = {};
 
-  $('.precio').each((_, el) => {
-    const priceText = $(el).text().trim();
-    const price = parsePrice(priceText);
-    if (!price || price < 1000) return;
+  // --- Debug: show body text preview ---
+  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+  console.log(`  Body preview (500): ${bodyText.substring(0, 500)}`);
 
-    // Get the immediate row container
-    const container = $(el).closest('tr, .row, li');
-    const rowText = (container.length ? container : $(el).parent())
-      .text()
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    // Skip PAMI / obra social coverage rows
-    if (/PAMI|PAC\./i.test(rowText)) return;
-
-    // Dose name is at the start of the row, before the price
-    const doseText = rowText.replace(/\$[\d.,]+.*$/, '').trim();
-
-    console.log(`  "${doseText.substring(0, 70)}" → $${price.toLocaleString('es-AR')}`);
-
-    for (const dose of config.doses) {
-      if (dose.pattern.test(doseText) && !found[dose.dbName]) {
-        found[dose.dbName] = price;
-        console.log(`  ✓ ${dose.dbName}`);
-      }
-    }
+  // --- Debug: log all leaf elements that contain price-like text ---
+  const pricePattern = /\$\s*[\d.,]{4,}/;
+  let priceElemsFound = 0;
+  $('*').each((_, el) => {
+    const children = $(el).children();
+    if (children.length > 0) return; // only leaf nodes
+    const text = $(el).text().trim();
+    if (!pricePattern.test(text) || text.length > 250) return;
+    const tag = el.tagName;
+    const cls = $(el).attr('class') || '';
+    console.log(`  [price-el] <${tag} class="${cls}"> ${text.substring(0, 150)}`);
+    priceElemsFound++;
+    if (priceElemsFound >= 10) return false; // stop after 10
   });
+
+  if (priceElemsFound === 0) {
+    console.log('  No price-like elements found on page.');
+  }
+
+  // TODO: fill in real parsing once we see the HTML structure from debug logs
 
   return found;
 }
 
 async function main() {
-  console.log(`\n[${new Date().toISOString()}] GLP-1 price update started`);
+  console.log(`\n[${new Date().toISOString()}] GLP-1 price update started (alfabeta.net — debug mode)`);
   console.log(`Using Chrome at: ${CHROME_PATH}`);
 
   const browser = await puppeteer.launch({
@@ -165,62 +157,22 @@ async function main() {
     ],
   });
 
-  const docRef = db.collection('config').doc('prices');
-  const doc = await docRef.get();
-  if (!doc.exists) {
-    console.error('No prices document in Firebase. Open the app first to initialize it.');
-    await browser.close();
-    process.exit(1);
-  }
-
-  const currentDb = doc.data().db;
-  let anyUpdate = false;
-
   try {
     for (const [medName, config] of Object.entries(MEDICATIONS)) {
       console.log(`\n── ${medName} ──`);
       try {
-        const prices = await scrapeMedication(browser, medName, config);
-
-        if (Object.keys(prices).length === 0) {
-          console.warn(`  ⚠  No prices found — skipping`);
-          continue;
-        }
-
-        if (!currentDb[medName]) {
-          console.warn(`  ⚠  Not found in Firebase DB — skipping`);
-          continue;
-        }
-
-        currentDb[medName].doses = currentDb[medName].doses.map(dose => {
-          if (prices[dose.name] !== undefined) {
-            anyUpdate = true;
-            return { ...dose, pvp: prices[dose.name] };
-          }
-          console.warn(`  ⚠  No match for: "${dose.name}"`);
-          return dose;
-        });
-
+        await scrapeMedication(browser, medName, config);
       } catch (err) {
         console.error(`  ✗ ${err.message}`);
       }
-
-      // Polite delay between requests
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 2000));
     }
   } finally {
     await browser.close();
   }
 
-  if (anyUpdate) {
-    await docRef.set({
-      db: currentDb,
-      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    console.log('\n✅ Prices updated in Firebase');
-  } else {
-    console.log('\n⚠  No prices were updated');
-  }
+  console.log('\nDebug run complete — no Firebase writes in this version.');
+  console.log('Check logs above to see the HTML structure from alfabeta.net.');
 
   await admin.app().delete();
 }
