@@ -1,13 +1,17 @@
 /**
  * GLP-1 Price Updater
- * Uses Puppeteer (headless Chrome) to scrape arg.kairosweb.com and update
- * Firebase Firestore with current PVP prices.
+ * Uses Puppeteer (headless Chrome) + puppeteer-extra-plugin-stealth to scrape
+ * arg.kairosweb.com and update Firebase Firestore with current PVP prices.
  * Runs via GitHub Actions every 30 min from 7am to 7pm Argentina (UTC-3).
  */
 
-const puppeteer = require('puppeteer-core');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const cheerio = require('cheerio');
 const admin = require('firebase-admin');
+
+// Apply all stealth evasions (webdriver flag, plugins, languages, chrome obj, etc.)
+puppeteer.use(StealthPlugin());
 
 // --- Firebase Init ---
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -85,7 +89,24 @@ async function fetchPage(browser, url) {
     await page.setUserAgent(
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     );
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'es-AR,es;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    });
+    await page.setViewport({ width: 1280, height: 800 });
+
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+
+    // Wait for price elements or log what we got instead
+    try {
+      await page.waitForSelector('.precio', { timeout: 10000 });
+    } catch (_) {
+      const title = await page.title();
+      const preview = await page.evaluate(() => document.body.innerText.substring(0, 300));
+      console.log(`  ⚠ .precio not found. Title: "${title}"`);
+      console.log(`  Body preview: ${preview.replace(/\s+/g, ' ')}`);
+    }
+
     return await page.content();
   } finally {
     await page.close();
@@ -140,6 +161,7 @@ async function main() {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
+      '--window-size=1280,800',
     ],
   });
 
