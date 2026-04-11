@@ -1,13 +1,17 @@
 /**
  * GLP-1 Price Updater
- * Uses Puppeteer (headless Chrome) to scrape arg.kairosweb.com and update
- * Firebase Firestore with current PVP prices.
+ * Uses Puppeteer (headless Chrome) + puppeteer-extra-plugin-stealth to scrape
+ * arg.kairosweb.com and update Firebase Firestore with current PVP prices.
  * Runs via GitHub Actions every 30 min from 7am to 7pm Argentina (UTC-3).
  */
 
-const puppeteer = require('puppeteer-core');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const cheerio = require('cheerio');
 const admin = require('firebase-admin');
+
+// Apply all stealth evasions (webdriver flag, plugins, languages, chrome obj, etc.)
+puppeteer.use(StealthPlugin());
 
 // --- Firebase Init ---
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -16,22 +20,6 @@ const db = admin.firestore();
 
 // Google Chrome is pre-installed on GitHub Actions ubuntu-latest runners
 const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
-
-// Anti-detection: injected into every page before it loads
-const STEALTH_SCRIPT = () => {
-  // Remove webdriver flag (main bot detection signal)
-  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-  // Fake plugins (headless has 0 by default)
-  Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-  // Set realistic languages
-  Object.defineProperty(navigator, 'languages', { get: () => ['es-AR', 'es', 'en-US', 'en'] });
-  // Fake chrome runtime object
-  window.chrome = { runtime: {} };
-  // Remove automation-related properties
-  delete window.__nightmare;
-  delete window._phantom;
-  delete window.callPhantom;
-};
 
 // --- Medication config ---
 // Patterns based on exact kairosweb row text (verified from screenshots):
@@ -98,9 +86,6 @@ function parsePrice(text) {
 async function fetchPage(browser, url) {
   const page = await browser.newPage();
   try {
-    // Inject stealth patches before any page script runs
-    await page.evaluateOnNewDocument(STEALTH_SCRIPT);
-
     await page.setUserAgent(
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     );
@@ -114,10 +99,10 @@ async function fetchPage(browser, url) {
 
     // Wait for price elements or log what we got instead
     try {
-      await page.waitForSelector('.precio', { timeout: 8000 });
+      await page.waitForSelector('.precio', { timeout: 10000 });
     } catch (_) {
       const title = await page.title();
-      const preview = await page.evaluate(() => document.body.innerText.substring(0, 200));
+      const preview = await page.evaluate(() => document.body.innerText.substring(0, 300));
       console.log(`  ⚠ .precio not found. Title: "${title}"`);
       console.log(`  Body preview: ${preview.replace(/\s+/g, ' ')}`);
     }
@@ -176,7 +161,6 @@ async function main() {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--disable-blink-features=AutomationControlled', // hides automation signals
       '--window-size=1280,800',
     ],
   });
