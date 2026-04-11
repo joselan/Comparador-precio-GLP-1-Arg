@@ -79,7 +79,7 @@ function parsePrice(text) {
   return parseFloat(clean.replace(/\./g, ''));
 }
 
-async function fetchPage(browser, url) {
+async function searchAlfabeta(browser, searchTerm) {
   const page = await browser.newPage();
   try {
     await page.setUserAgent(
@@ -91,13 +91,25 @@ async function fetchPage(browser, url) {
     });
     await page.setViewport({ width: 1280, height: 800 });
 
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Navigate to search page and wait for network to settle (captures AJAX)
+    await page.goto('https://www.alfabeta.net/precio/buscar.html', {
+      waitUntil: 'networkidle2',
+      timeout: 30000,
+    });
 
-    // Extra wait for JS-rendered content or anti-bot challenges to resolve
-    await new Promise(r => setTimeout(r, 4000));
+    // Find and fill the search input, then submit
+    const inputSel = 'input[name="str"], input[type="search"], input[type="text"]';
+    await page.waitForSelector(inputSel, { timeout: 5000 });
+    await page.focus(inputSel);
+    await page.keyboard.type(searchTerm);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
+      page.keyboard.press('Enter'),
+    ]);
 
     const title = await page.title();
-    console.log(`  Title: "${title}"`);
+    const finalUrl = page.url();
+    console.log(`  Title: "${title}" | URL: ${finalUrl}`);
 
     return await page.content();
   } finally {
@@ -106,37 +118,37 @@ async function fetchPage(browser, url) {
 }
 
 async function scrapeMedication(browser, medName, config) {
-  const url = `https://www.alfabeta.net/precio/buscar.html?str=${encodeURIComponent(config.searchTerm)}`;
-  console.log(`  URL: ${url}`);
+  console.log(`  Searching: "${config.searchTerm}"`);
 
-  const html = await fetchPage(browser, url);
+  const html = await searchAlfabeta(browser, config.searchTerm);
   const $ = cheerio.load(html);
   const found = {};
 
-  // --- Debug: show body text preview ---
+  // --- Debug: show more body text ---
   const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
-  console.log(`  Body preview (500): ${bodyText.substring(0, 500)}`);
+  console.log(`  Body text (2000): ${bodyText.substring(0, 2000)}`);
 
-  // --- Debug: log all leaf elements that contain price-like text ---
-  const pricePattern = /\$\s*[\d.,]{4,}/;
-  let priceElemsFound = 0;
-  $('*').each((_, el) => {
-    const children = $(el).children();
-    if (children.length > 0) return; // only leaf nodes
-    const text = $(el).text().trim();
-    if (!pricePattern.test(text) || text.length > 250) return;
-    const tag = el.tagName;
-    const cls = $(el).attr('class') || '';
-    console.log(`  [price-el] <${tag} class="${cls}"> ${text.substring(0, 150)}`);
-    priceElemsFound++;
-    if (priceElemsFound >= 10) return false; // stop after 10
+  // --- Debug: log all <tr> rows (price tables are usually in <table>) ---
+  const rows = [];
+  $('tr').each((_, el) => {
+    const text = $(el).text().replace(/\s+/g, ' ').trim();
+    if (text.length > 5 && text.length < 400) rows.push(text.substring(0, 200));
   });
-
-  if (priceElemsFound === 0) {
-    console.log('  No price-like elements found on page.');
+  if (rows.length > 0) {
+    console.log(`  Table rows found (${rows.length}):`);
+    rows.slice(0, 15).forEach(r => console.log(`    • ${r}`));
+  } else {
+    console.log('  No <tr> rows found.');
   }
 
-  // TODO: fill in real parsing once we see the HTML structure from debug logs
+  // --- Debug: log raw HTML of any element with class containing "result", "precio", "price" ---
+  $('[class]').each((_, el) => {
+    const cls = $(el).attr('class') || '';
+    if (/result|precio|price|prod|medic/i.test(cls)) {
+      const text = $(el).text().replace(/\s+/g, ' ').trim().substring(0, 200);
+      console.log(`  [class="${cls}"] ${text}`);
+    }
+  });
 
   return found;
 }
