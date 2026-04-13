@@ -2,9 +2,10 @@ name: Update GLP-1 Prices
 
 on:
   schedule:
-    # Every 30 min, 7:00am–7:00pm Argentina (UTC-3) = 10:00–22:00 UTC
-    - cron: '0,30 10-21 * * *'
-    - cron: '0 22 * * *'
+    - cron: '0 3 * * 1-5'   # 12:00 AM ART (UTC-3) Mon–Fri
+    - cron: '0 9 * * 1-5'   #  6:00 AM ART
+    - cron: '0 15 * * 1-5'  # 12:00 PM ART
+    - cron: '0 21 * * 1-5'  #  6:00 PM ART
   workflow_dispatch: # Allow manual trigger for testing
 
 jobs:
@@ -29,5 +30,6 @@ jobs:
         working-directory: scripts
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           # Google Chrome is pre-installed on ubuntu-latest runners
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome-stable
