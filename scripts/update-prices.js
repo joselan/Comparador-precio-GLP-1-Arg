@@ -1,7 +1,6 @@
 /**
  * GLP-1 Price Updater
- * Uses Puppeteer (headless Chrome) + puppeteer-extra-plugin-stealth to scrape
- * www.alfabeta.net and update Firebase Firestore with current PVP prices.
+ * Scrapes www.alfabeta.net and updates Firebase Firestore with current PVP prices.
  * Runs via GitHub Actions every 30 min from 7am to 7pm Argentina (UTC-3).
  */
 
@@ -17,13 +16,11 @@ const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 const db = admin.firestore();
 
-// Google Chrome is pre-installed on GitHub Actions ubuntu-latest runners
 const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
 
 // --- Medication config ---
-// dbName must match the "name" field in Firebase dose objects.
-// searchTerm is appended to the alfabeta search URL.
-// doses[].pattern matches against the product description text on the results page.
+// dbName must match the "name" field of each dose in Firebase.
+// pattern matches the dose description text on the alfabeta product page.
 const MEDICATIONS = {
   Mounjaro: {
     searchTerm: 'mounjaro',
@@ -79,7 +76,7 @@ function parsePrice(text) {
   return parseFloat(clean.replace(/\./g, ''));
 }
 
-async function searchAlfabeta(browser, searchTerm) {
+async function getProductPageHtml(browser, searchTerm) {
   const page = await browser.newPage();
   try {
     await page.setUserAgent(
@@ -91,13 +88,13 @@ async function searchAlfabeta(browser, searchTerm) {
     });
     await page.setViewport({ width: 1280, height: 800 });
 
-    // Navigate to search page and wait for network to settle (captures AJAX)
+    // 1. Go to search page
     await page.goto('https://www.alfabeta.net/precio/buscar.html', {
       waitUntil: 'networkidle2',
       timeout: 30000,
     });
 
-    // Find and fill the search input, then submit
+    // 2. Type search term and submit
     const inputSel = 'input[name="str"], input[type="search"], input[type="text"]';
     await page.waitForSelector(inputSel, { timeout: 5000 });
     await page.focus(inputSel);
@@ -107,46 +104,78 @@ async function searchAlfabeta(browser, searchTerm) {
       page.keyboard.press('Enter'),
     ]);
 
-    const title = await page.title();
-    const finalUrl = page.url();
-    console.log(`  Title: "${title}" | URL: ${finalUrl}`);
+    // 3. Click the first result link (.rprod is the product name element inside .resultsearch)
+    const resultLink = await page.$('.resultsearch a, .rprod a, a.rprod');
+    if (!resultLink) {
+      // Try clicking the rprod div directly if it's the clickable element
+      const rprod = await page.$('.rprod');
+      if (rprod) {
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
+          rprod.click(),
+        ]);
+      } else {
+        console.log('  ⚠ No result link found in search results');
+        return null;
+      }
+    } else {
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
+        resultLink.click(),
+      ]);
+    }
 
-    return await page.content();
+    const url = page.url();
+    const title = await page.title();
+    console.log(`  Product page: "${title}" | ${url}`);
+
+    // 4. Dump all table rows for debug
+    const html = await page.content();
+    const $ = cheerio.load(html);
+    const rows = [];
+    $('tr').each((_, el) => {
+      const text = $(el).text().replace(/\s+/g, ' ').trim();
+      if (text.length > 2 && text.length < 400) rows.push(text.substring(0, 200));
+    });
+    console.log(`  Table rows (${rows.length}):`);
+    rows.slice(0, 20).forEach(r => console.log(`    • ${r}`));
+
+    return html;
   } finally {
     await page.close();
   }
 }
 
 async function scrapeMedication(browser, medName, config) {
-  console.log(`  Searching: "${config.searchTerm}"`);
+  const html = await getProductPageHtml(browser, config.searchTerm);
+  if (!html) return {};
 
-  const html = await searchAlfabeta(browser, config.searchTerm);
   const $ = cheerio.load(html);
   const found = {};
 
-  // --- Debug: show more body text ---
-  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
-  console.log(`  Body text (2000): ${bodyText.substring(0, 2000)}`);
-
-  // --- Debug: log all <tr> rows (price tables are usually in <table>) ---
-  const rows = [];
+  // Try common table-based price structures
   $('tr').each((_, el) => {
-    const text = $(el).text().replace(/\s+/g, ' ').trim();
-    if (text.length > 5 && text.length < 400) rows.push(text.substring(0, 200));
-  });
-  if (rows.length > 0) {
-    console.log(`  Table rows found (${rows.length}):`);
-    rows.slice(0, 15).forEach(r => console.log(`    • ${r}`));
-  } else {
-    console.log('  No <tr> rows found.');
-  }
+    const rowText = $(el).text().replace(/\s+/g, ' ').trim();
+    if (!rowText) return;
 
-  // --- Debug: log raw HTML of any element with class containing "result", "precio", "price" ---
-  $('[class]').each((_, el) => {
-    const cls = $(el).attr('class') || '';
-    if (/result|precio|price|prod|medic/i.test(cls)) {
-      const text = $(el).text().replace(/\s+/g, ' ').trim().substring(0, 200);
-      console.log(`  [class="${cls}"] ${text}`);
+    // Skip PAMI / obra social rows
+    if (/PAMI|PAC\./i.test(rowText)) return;
+
+    // Look for price in the row
+    const priceMatch = rowText.match(/\$\s*([\d.,]+)/);
+    if (!priceMatch) return;
+    const price = parsePrice(priceMatch[1]);
+    if (!price || price < 1000) return;
+
+    // Dose description is everything before the price
+    const doseText = rowText.replace(/\$.*$/, '').trim();
+    console.log(`  "${doseText.substring(0, 70)}" → $${price.toLocaleString('es-AR')}`);
+
+    for (const dose of config.doses) {
+      if (dose.pattern.test(doseText) && !found[dose.dbName]) {
+        found[dose.dbName] = price;
+        console.log(`  ✓ matched: ${dose.dbName}`);
+      }
     }
   });
 
@@ -154,7 +183,7 @@ async function scrapeMedication(browser, medName, config) {
 }
 
 async function main() {
-  console.log(`\n[${new Date().toISOString()}] GLP-1 price update started (alfabeta.net — debug mode)`);
+  console.log(`\n[${new Date().toISOString()}] GLP-1 price update started`);
   console.log(`Using Chrome at: ${CHROME_PATH}`);
 
   const browser = await puppeteer.launch({
@@ -169,22 +198,61 @@ async function main() {
     ],
   });
 
+  const docRef = db.collection('config').doc('prices');
+  const doc = await docRef.get();
+  if (!doc.exists) {
+    console.error('No prices document in Firebase. Open the app first to initialize it.');
+    await browser.close();
+    process.exit(1);
+  }
+
+  const currentDb = doc.data().db;
+  let anyUpdate = false;
+
   try {
     for (const [medName, config] of Object.entries(MEDICATIONS)) {
       console.log(`\n── ${medName} ──`);
       try {
-        await scrapeMedication(browser, medName, config);
+        const prices = await scrapeMedication(browser, medName, config);
+
+        if (Object.keys(prices).length === 0) {
+          console.warn(`  ⚠  No prices found — skipping`);
+          continue;
+        }
+
+        if (!currentDb[medName]) {
+          console.warn(`  ⚠  Not found in Firebase DB — skipping`);
+          continue;
+        }
+
+        currentDb[medName].doses = currentDb[medName].doses.map(dose => {
+          if (prices[dose.name] !== undefined) {
+            anyUpdate = true;
+            return { ...dose, pvp: prices[dose.name] };
+          }
+          console.warn(`  ⚠  No match for: "${dose.name}"`);
+          return dose;
+        });
+
       } catch (err) {
         console.error(`  ✗ ${err.message}`);
       }
+
       await new Promise(r => setTimeout(r, 2000));
     }
   } finally {
     await browser.close();
   }
 
-  console.log('\nDebug run complete — no Firebase writes in this version.');
-  console.log('Check logs above to see the HTML structure from alfabeta.net.');
+  if (anyUpdate) {
+    await docRef.set({
+      db: currentDb,
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    console.log('\n✅ Prices updated in Firebase');
+  } else {
+    console.log('\n⚠  No prices were updated');
+  }
 
   await admin.app().delete();
 }
