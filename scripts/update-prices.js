@@ -19,12 +19,10 @@
  *   haría sin escribir en Firebase ni enviar emails (lee la BD por REST público).
  */
 
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const cheerio = require('cheerio');
-const nodemailer = require('nodemailer');
-
-puppeteer.use(StealthPlugin());
+// Las dependencias pesadas (puppeteer, cheerio, nodemailer, firebase-admin) se
+// cargan de forma perezosa dentro de las funciones que las usan. Así el módulo
+// se puede importar sin instalar nada (los tests de las funciones puras corren
+// con Node pelado).
 
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -206,6 +204,7 @@ async function sendEmail(changedMeds, newPrices, warnings) {
   const subject = changedMeds.length > 0
     ? `💊 GLP-1 precios actualizados: ${changedMeds.join(', ')}`
     : `⚠ GLP-1 scraper: advertencias (sin cambios de precios)`;
+  const nodemailer = require('nodemailer');
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: ADMIN_EMAIL, pass: GMAIL_APP_PASSWORD },
@@ -290,6 +289,7 @@ async function scrapeMedication(browser, medName, config) {
     return { prices: {}, warnings };
   }
 
+  const cheerio = require('cheerio');
   const $ = cheerio.load(html);
   const found = {};
 
@@ -360,6 +360,8 @@ async function main() {
 
   const currentDb = docData.db;
 
+  const puppeteer = require('puppeteer-extra');
+  puppeteer.use(require('puppeteer-extra-plugin-stealth')());
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
     headless: true,

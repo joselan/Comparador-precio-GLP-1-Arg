@@ -2,8 +2,11 @@
   "name": "glp1-price-updater",
   "version": "1.0.0",
   "private": true,
-  "description": "Scrapes kairosweb.com and updates GLP-1 prices in Firebase Firestore",
+  "description": "Scrapes alfabeta.net and updates GLP-1 prices in Firebase Firestore",
   "main": "update-prices.js",
+  "scripts": {
+    "test": "node test-parse.js && node test-mergedb.js"
+  },
   "dependencies": {
     "cheerio": "^1.0.0",
     "firebase-admin": "^12.0.0",
