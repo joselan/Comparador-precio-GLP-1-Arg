@@ -100,7 +100,7 @@
         };
 
         const defaultDb = {
-            Mounjaro: { lab: 'Adium', psp: 'Con Voz', hasPsp: true, pspType: 'fixed', pspValue: 0.30, canSplit: true, color: 'bg-blue-600', doses: [ { name: '2.5mg (KwikPen x1)', pvp: 612576.68 }, { name: '5mg (KwikPen x1)', pvp: 829980.63 } ] },
+            Mounjaro: { lab: 'Adium', psp: 'Con Voz', hasPsp: true, pspType: 'fixed', pspValue: 0.30, canSplit: true, color: 'bg-blue-600', doses: [ { name: '2.5mg (KwikPen x1)', pvp: 612576.68 }, { name: '5mg (KwikPen x1)', pvp: 829980.63 }, { name: '7.5mg (KwikPen x1)', pvp: null }, { name: '10mg (KwikPen x1)', pvp: null } ] },
             Ozempic: { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'progressive', canSplit: true, color: 'bg-teal-600', doses: [ { name: '0.25mg / 0.5mg (1.5ml + 6 ag)', pvp: 322213.46 }, { name: '1mg (3ml + 4 ag)', pvp: 386656.15 } ] },
             Wegovy: { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'progressive', canSplit: true, color: 'bg-teal-500', doses: [ { name: '0.25mg (1.5ml + 4 ag)', pvp: 322213.46 }, { name: '0.5mg (1.5ml + 4 ag)', pvp: 322213.46 }, { name: '1mg (3ml + 4 ag)', pvp: 386656.15 }, { name: '1.7mg (3ml + 4 ag)', pvp: 541318.63 }, { name: '2.4mg (3ml + 4 ag)', pvp: 757846.07 } ] },
             Dutide: { lab: 'Elea', psp: '-', hasPsp: false, canSplit: false, color: 'bg-purple-600', doses: [ { name: '0.25mg (x4)', pvp: 114334.23 }, { name: '0.5mg (x4)', pvp: 131478.58 }, { name: '1mg (x4)', pvp: 148738.76 } ] },
@@ -109,10 +109,29 @@
 
         const formatCurrency = (val) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
 
+        // Combina la BD local (estructura de referencia: productos y dosis nuevos
+        // definidos en el código) con la de Firebase (precios vigentes). Los precios
+        // de Firebase mandan; las dosis que aún no existen en Firebase se agregan
+        // desde defaultDb para que aparezcan sin esperar una publicación manual.
+        const mergeDb = (base, remote) => {
+            if (!remote) return base;
+            const merged = {};
+            Object.keys(base).forEach(k => {
+                if (!remote[k]) { merged[k] = base[k]; return; }
+                const remoteDoses = remote[k].doses || [];
+                const doses = base[k].doses.map(d => remoteDoses.find(rd => rd.name === d.name) || d);
+                remoteDoses.forEach(rd => { if (!doses.some(d => d.name === rd.name)) doses.push(rd); });
+                merged[k] = { ...base[k], ...remote[k], doses };
+            });
+            Object.keys(remote).forEach(k => { if (!merged[k]) merged[k] = remote[k]; });
+            return merged;
+        };
+
         function App() {
             // Estado Principal de la BD
             const [db, setDb] = useState(defaultDb);
             const [loadingDb, setLoadingDb] = useState(true);
+            const [lastUpdated, setLastUpdated] = useState(null);
 
             // Estados de la Calculadora
             const [med, setMed] = useState('Mounjaro');
@@ -136,7 +155,9 @@
                 const unsubscribe = firestore.collection('config').doc('prices')
                     .onSnapshot((doc) => {
                         if (doc.exists && doc.data().db) {
-                            setDb(doc.data().db);
+                            setDb(mergeDb(defaultDb, doc.data().db));
+                            const lu = doc.data().lastUpdated;
+                            setLastUpdated(lu && lu.toDate ? lu.toDate() : null);
                         } else {
                             // Si no existe, usamos los de defecto
                             setDb(defaultDb);
@@ -242,13 +263,16 @@
 
             const comparison = useMemo(() => {
                 let list = [];
+                let pending = [];
                 Object.keys(db).forEach(k => {
                     db[k].doses.forEach(d => {
+                        // Dosis sin PVP publicado aún: no entran al ranking
+                        if (!d.pvp) { pending.push(k + ' ' + d.name); return; }
                         const r = calc(d.pvp, db[k], month, ooss, usePsp, isMonthly);
                         list.push({ label: k, dose: d.name, ...r, color: db[k].color, canSplit: db[k].canSplit });
                     });
                 });
-                return list.sort((a, b) => a.perMonth - b.perMonth);
+                return { list: list.sort((a, b) => a.perMonth - b.perMonth), pending };
             }, [db, med, doseIdx, ooss, month, usePsp, isMonthly]);
 
             // --- PANEL ADMINISTRADOR ---
@@ -476,10 +500,10 @@
                                                             <input
                                                                 type="number"
                                                                 step="0.01"
-                                                                value={dose.pvp}
+                                                                value={dose.pvp ?? ''}
                                                                 onChange={(e) => updatePrice(medKey, dIdx, e.target.value)}
                                                                 className="w-full pl-9 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-slate-900 dark:text-white font-mono font-medium transition-all"
-                                                                placeholder="0.00"
+                                                                placeholder="Sin precio publicado"
                                                             />
                                                         </div>
                                                     </div>
@@ -555,6 +579,20 @@
                             </div>
                         </div>
                     </header>
+
+                    {lastUpdated && (() => {
+                        const daysOld = Math.floor((Date.now() - lastUpdated.getTime()) / 86400000);
+                        return (
+                            <div className="max-w-6xl mx-auto px-4 md:px-6 pt-4 -mb-2 flex items-center gap-2 flex-wrap text-xs text-slate-400 dark:text-slate-500">
+                                <span>Fuente: alfabeta.net · Última actualización: {lastUpdated.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                                {daysOld > 7 && (
+                                    <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-bold">
+                                        ⚠ Hace {daysOld} días sin actualizar — los precios pueden estar desactualizados
+                                    </span>
+                                )}
+                            </div>
+                        );
+                    })()}
 
                     <main className="max-w-6xl mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
                         <aside className="lg:col-span-5 space-y-6">
@@ -632,6 +670,12 @@
                                         </div>
                                     </div>
 
+                                    {!activeDose.pvp ? (
+                                    <div className="border-t border-b border-slate-100 dark:border-slate-700 py-10 my-6 bg-slate-50/50 dark:bg-slate-900/20 -mx-8 px-8 text-center">
+                                        <p className="text-lg font-bold text-slate-500 dark:text-slate-400">Precio aún no publicado</p>
+                                        <p className="text-xs text-slate-400 mt-2 max-w-sm mx-auto">Esta presentación todavía no tiene PVP informado en alfabeta.net. El precio va a aparecer acá automáticamente apenas el laboratorio lo publique.</p>
+                                    </div>
+                                    ) : (<React.Fragment>
                                     <div className="space-y-4 border-t border-b border-slate-100 dark:border-slate-700 py-6 my-6 bg-slate-50/50 dark:bg-slate-900/20 -mx-8 px-8">
                                         <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
                                             <span className="text-sm">Precio Venta Público (PVP)</span>
@@ -674,6 +718,7 @@
                                             </div>
                                         )}
                                     </div>
+                                    </React.Fragment>)}
                                 </div>
                             </div>
 
@@ -693,7 +738,7 @@
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
-                                            {comparison.map((item, i) => (
+                                            {comparison.list.map((item, i) => (
                                                 <tr key={i} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition ${item.label === med && item.dose === activeDose.name ? 'bg-blue-50/80 dark:bg-blue-900/20' : ''}`}>
                                                     <td className="py-3 px-2 font-bold flex items-center gap-2 whitespace-nowrap">
                                                         <div className={`w-2 h-2 rounded-full flex-shrink-0 ${item.color}`}></div>
@@ -709,6 +754,11 @@
                                         </tbody>
                                     </table>
                                 </div>
+                                {comparison.pending.length > 0 && (
+                                    <p className="text-[11px] text-slate-400 mt-3">
+                                        Sin precio publicado aún: {comparison.pending.join(' · ')}. Se agregarán automáticamente cuando el laboratorio los informe.
+                                    </p>
+                                )}
                             </div>
                         </section>
                     </main>
