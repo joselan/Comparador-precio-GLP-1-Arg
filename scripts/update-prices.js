@@ -5,67 +5,95 @@
  * - Saves price history snapshots to Firestore when prices change
  * - Sends email notification when prices change (nodemailer + Gmail App Password)
  * Runs via GitHub Actions at 12AM, 6AM, 12PM, 6PM Argentina time (Mon–Fri).
+ *
+ * Controles de calidad del scraping:
+ * - Cada dosis se identifica por su valor numérico exacto de mg (evita que
+ *   "2,5 mg" matchee la dosis de 5 mg, como pasaba con las regex sueltas).
+ * - Filas que matchean más de una dosis se descartan y generan advertencia.
+ * - Cambios de precio > WARN_CHANGE (40%) se aplican pero se marcan para revisar.
+ * - Cambios de precio > BLOCK_CHANGE (80%) se bloquean y requieren revisión manual.
+ * - Dos dosis distintas que quedan con el mismo PVP generan advertencia.
+ * - Si un producto no devuelve ningún precio se avisa por email; si NINGUNO
+ *   devuelve precios, el job termina con error (falla visible en GitHub Actions).
+ * - Modo simulación: `node update-prices.js --dry-run` scrapea y muestra qué
+ *   haría sin escribir en Firebase ni enviar emails (lee la BD por REST público).
  */
 
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const cheerio = require('cheerio');
-const admin = require('firebase-admin');
 const nodemailer = require('nodemailer');
 
 puppeteer.use(StealthPlugin());
 
-// --- Firebase Init ---
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-const db = admin.firestore();
+const DRY_RUN = process.argv.includes('--dry-run');
 
+// --- Firebase Init (lazy; se omite en dry-run) ---
+let admin = null;
+let db = null;
+function initFirebase() {
+  admin = require('firebase-admin');
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+  db = admin.firestore();
+}
+
+const FIREBASE_PROJECT_ID = 'comparador-precios-glp-1-arg';
 const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 const ADMIN_EMAIL = 'joselanglois@gmail.com';
 
+// Umbrales de control de cambios de precio (fracción sobre el precio anterior)
+const WARN_CHANGE = parseFloat(process.env.WARN_CHANGE || '0.40');
+const BLOCK_CHANGE = parseFloat(process.env.BLOCK_CHANGE || '0.80');
+
 // --- Medication config ---
+// Cada dosis declara los mg exactos que deben aparecer en la fila de alfabeta.
+// `optional: true` = presentación anunciada pero quizás aún no publicada; su
+// ausencia no genera advertencias.
 const MEDICATIONS = {
   Mounjaro: {
     searchTerm: 'mounjaro',
     doses: [
-      { dbName: '2.5mg (KwikPen x1)', pattern: /2[,.]5\s*mg/i },
-      { dbName: '5mg (KwikPen x1)',    pattern: /\b5\s*mg/i },
+      { dbName: '2.5mg (KwikPen x1)', mg: [2.5] },
+      { dbName: '5mg (KwikPen x1)',   mg: [5] },
+      { dbName: '7.5mg (KwikPen x1)', mg: [7.5], optional: true },
+      { dbName: '10mg (KwikPen x1)',  mg: [10],  optional: true },
     ],
   },
   Ozempic: {
     searchTerm: 'ozempic',
     doses: [
-      { dbName: '0.25mg / 0.5mg (1.5ml + 6 ag)', pattern: /0[,.]25\s*mg.*0[,.]5\s*mg/i },
-      { dbName: '1mg (3ml + 4 ag)',               pattern: /\b1\s*mg/i },
+      { dbName: '0.25mg / 0.5mg (1.5ml + 6 ag)', mg: [0.25, 0.5] },
+      { dbName: '1mg (3ml + 4 ag)',               mg: [1] },
     ],
   },
   Wegovy: {
     searchTerm: 'wegovy',
     doses: [
-      { dbName: '0.25mg (1.5ml + 4 ag)', pattern: /0[,.]25\s*mg/i },
-      { dbName: '0.5mg (1.5ml + 4 ag)',  pattern: /0[,.]5\s*mg/i },
-      { dbName: '1mg (3ml + 4 ag)',       pattern: /\b1\s*mg/i },
-      { dbName: '1.7mg (3ml + 4 ag)',     pattern: /1[,.]7\s*mg/i },
-      { dbName: '2.4mg (3ml + 4 ag)',     pattern: /2[,.]4\s*mg/i },
+      { dbName: '0.25mg (1.5ml + 4 ag)', mg: [0.25] },
+      { dbName: '0.5mg (1.5ml + 4 ag)',  mg: [0.5] },
+      { dbName: '1mg (3ml + 4 ag)',       mg: [1] },
+      { dbName: '1.7mg (3ml + 4 ag)',     mg: [1.7] },
+      { dbName: '2.4mg (3ml + 4 ag)',     mg: [2.4] },
     ],
   },
   Dutide: {
     searchTerm: 'dutide',
     doses: [
-      { dbName: '0.25mg (x4)', pattern: /0[,.]25\s*mg/i },
-      { dbName: '0.5mg (x4)',  pattern: /0[,.]5\s*mg/i },
-      { dbName: '1mg (x4)',    pattern: /\b1\s*mg/i },
+      { dbName: '0.25mg (x4)', mg: [0.25] },
+      { dbName: '0.5mg (x4)',  mg: [0.5] },
+      { dbName: '1mg (x4)',    mg: [1] },
     ],
   },
   Obetide: {
     searchTerm: 'obetide',
     doses: [
-      { dbName: '0.25mg (x4)', pattern: /0[,.]25\s*mg/i },
-      { dbName: '0.5mg (x4)',  pattern: /0[,.]5\s*mg/i },
-      { dbName: '1mg (x4)',    pattern: /\b1\s*mg/i },
-      { dbName: '1.7mg (x4)', pattern: /1[,.]7\s*mg/i },
-      { dbName: '2.4mg (x4)', pattern: /2[,.]4\s*mg/i },
+      { dbName: '0.25mg (x4)', mg: [0.25] },
+      { dbName: '0.5mg (x4)',  mg: [0.5] },
+      { dbName: '1mg (x4)',    mg: [1] },
+      { dbName: '1.7mg (x4)',  mg: [1.7] },
+      { dbName: '2.4mg (x4)',  mg: [2.4] },
     ],
   },
 };
@@ -80,12 +108,61 @@ function parsePrice(text) {
   return parseFloat(clean.replace(/\./g, ''));
 }
 
+// Extrae todos los valores "X mg" de un texto ("2,5 mg/0,6 ml" → [2.5]).
+// Los "ml", "mcg" y demás unidades quedan afuera.
+function extractMgValues(text) {
+  const values = [];
+  const re = /(\d+(?:[.,]\d+)?)\s*mg\b/gi;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    values.push(parseFloat(m[1].replace(',', '.')));
+  }
+  return values;
+}
+
+// Devuelve la dosis cuyos mg esperados están TODOS presentes en la fila.
+// Si más de una dosis (con igual especificidad) matchea, la fila es ambigua.
+function matchDose(doses, mgValues) {
+  const present = new Set(mgValues);
+  const matches = doses.filter(d => d.mg.every(v => present.has(v)));
+  if (matches.length === 0) return { dose: null };
+  const maxSpecificity = Math.max(...matches.map(d => d.mg.length));
+  const best = matches.filter(d => d.mg.length === maxSpecificity);
+  if (best.length > 1) return { dose: null, ambiguous: best.map(d => d.dbName) };
+  return { dose: best[0] };
+}
+
 function formatARS(val) {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
 }
 
+// --- Lectura pública por REST (para --dry-run, no necesita credenciales) ---
+function decodeFirestoreValue(v) {
+  if ('stringValue' in v) return v.stringValue;
+  if ('doubleValue' in v) return v.doubleValue;
+  if ('integerValue' in v) return parseInt(v.integerValue, 10);
+  if ('booleanValue' in v) return v.booleanValue;
+  if ('nullValue' in v) return null;
+  if ('timestampValue' in v) return v.timestampValue;
+  if ('mapValue' in v) return decodeFirestoreFields(v.mapValue.fields || {});
+  if ('arrayValue' in v) return (v.arrayValue.values || []).map(decodeFirestoreValue);
+  return null;
+}
+function decodeFirestoreFields(fields) {
+  const out = {};
+  for (const [k, v] of Object.entries(fields)) out[k] = decodeFirestoreValue(v);
+  return out;
+}
+async function fetchPricesDocViaRest() {
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/config/prices`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Firestore REST ${res.status}`);
+  const json = await res.json();
+  return decodeFirestoreFields(json.fields || {});
+}
+
 // --- Email ---
-function buildEmailHtml(changedMeds, newPrices) {
+function buildEmailHtml(changedMeds, newPrices, warnings) {
   const now = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
   let html = `<h2 style="color:#1e40af;margin-bottom:4px">Actualización de precios GLP-1</h2>
               <p style="color:#64748b;margin-top:0">${now}</p>`;
@@ -95,21 +172,13 @@ function buildEmailHtml(changedMeds, newPrices) {
     html += `<hr style="margin:16px 0"><h3 style="margin:0 0 8px">${medName}</h3>`;
 
     if (medName === 'Mounjaro') {
-      const pvp25  = doses['2.5mg (KwikPen x1)'];
-      const pvp5   = doses['5mg (KwikPen x1)'];
-      if (pvp25 && pvp5) {
-        const psp25  = pvp25 * 0.70;
-        const psp5   = pvp5  * 0.70;
-        const farm25 = psp25 * 0.80;
-        const farm5  = psp5  * 0.80;
+      for (const [doseName, price] of Object.entries(doses)) {
+        const psp = price * 0.70;
+        const farm = psp * 0.80;
         html += `
-          <p>Mounjaro 2,5MG cuesta <b>${formatARS(pvp25)}</b> y Mounjaro 5MG <b>${formatARS(pvp5)}</b>.</p>
-          <p>Aplicando el descuento del 30% del programa Con Voz, el precio de
-             Mounjaro 2,5MG queda en <b>${formatARS(psp25)}</b> y
-             Mounjaro 5MG queda en <b>${formatARS(psp5)}</b>.</p>
-          <p>Si a esto se le aplica el 20% de descuento que hacen algunas farmacias,
-             Mounjaro 2,5MG quedaría en <b>${formatARS(farm25)}</b> y
-             Mounjaro 5MG quedaría en <b>${formatARS(farm5)}</b>.</p>`;
+          <p><b>${doseName}</b>: PVP <b>${formatARS(price)}</b><br>
+             Con el 30% del programa Con Voz queda en <b>${formatARS(psp)}</b>;
+             sumando el 20% de descuento de algunas farmacias, en <b>${formatARS(farm)}</b>.</p>`;
       }
     } else {
       for (const [doseName, price] of Object.entries(doses)) {
@@ -118,15 +187,25 @@ function buildEmailHtml(changedMeds, newPrices) {
     }
   }
 
+  if (warnings.length > 0) {
+    html += `<hr style="margin:16px 0"><h3 style="color:#b45309;margin:0 0 8px">⚠ Advertencias del scraper</h3>`;
+    for (const w of warnings) {
+      html += `<p style="color:#b45309;margin:4px 0">${w}</p>`;
+    }
+  }
+
   html += `<hr><p style="color:#94a3b8;font-size:12px">Fuente: alfabeta.net · Comparador GLP-1 Argentina</p>`;
   return html;
 }
 
-async function sendEmail(changedMeds, newPrices) {
+async function sendEmail(changedMeds, newPrices, warnings) {
   if (!GMAIL_APP_PASSWORD) {
     console.log('  ⚠ GMAIL_APP_PASSWORD no configurado — se omite el email');
     return;
   }
+  const subject = changedMeds.length > 0
+    ? `💊 GLP-1 precios actualizados: ${changedMeds.join(', ')}`
+    : `⚠ GLP-1 scraper: advertencias (sin cambios de precios)`;
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: ADMIN_EMAIL, pass: GMAIL_APP_PASSWORD },
@@ -135,8 +214,8 @@ async function sendEmail(changedMeds, newPrices) {
     await transporter.sendMail({
       from: `"GLP-1 Comparador" <${ADMIN_EMAIL}>`,
       to: ADMIN_EMAIL,
-      subject: `💊 GLP-1 precios actualizados: ${changedMeds.join(', ')}`,
-      html: buildEmailHtml(changedMeds, newPrices),
+      subject,
+      html: buildEmailHtml(changedMeds, newPrices, warnings),
     });
     console.log('  ✉ Email enviado a', ADMIN_EMAIL);
   } catch (err) {
@@ -198,8 +277,18 @@ async function getProductPageHtml(browser, searchTerm) {
 }
 
 async function scrapeMedication(browser, medName, config) {
+  const warnings = [];
   const html = await getProductPageHtml(browser, config.searchTerm);
-  if (!html) return {};
+  if (!html) {
+    warnings.push(`${medName}: la búsqueda en alfabeta no devolvió resultados.`);
+    return { prices: {}, warnings };
+  }
+
+  // Control: verificar que aterrizamos en la página del producto correcto
+  if (!html.toLowerCase().includes(config.searchTerm.toLowerCase())) {
+    warnings.push(`${medName}: la página cargada no menciona "${config.searchTerm}" — posible producto equivocado, se descarta.`);
+    return { prices: {}, warnings };
+  }
 
   const $ = cheerio.load(html);
   const found = {};
@@ -215,36 +304,57 @@ async function scrapeMedication(browser, medName, config) {
     if (!price || price < 1000) return;
 
     const doseText = rowText.replace(/\$.*$/, '').trim();
-    console.log(`  "${doseText.substring(0, 70)}" → ${formatARS(price)}`);
+    const mgValues = extractMgValues(doseText);
+    if (mgValues.length === 0) return;
+    console.log(`  "${doseText.substring(0, 70)}" [${mgValues.join(' / ')} mg] → ${formatARS(price)}`);
 
-    for (const dose of config.doses) {
-      if (dose.pattern.test(doseText) && !found[dose.dbName]) {
-        found[dose.dbName] = price;
-        console.log(`  ✓ ${dose.dbName}`);
-      }
+    const { dose, ambiguous } = matchDose(config.doses, mgValues);
+    if (ambiguous) {
+      warnings.push(`${medName}: fila ambigua "${doseText.substring(0, 70)}" matchea ${ambiguous.join(' y ')} — se descarta.`);
+      return;
     }
+    if (!dose) return;
+
+    if (found[dose.dbName] !== undefined) {
+      if (found[dose.dbName] !== price) {
+        warnings.push(`${medName} ${dose.dbName}: dos filas con precios distintos (${formatARS(found[dose.dbName])} vs ${formatARS(price)}) — se conserva el primero.`);
+      }
+      return;
+    }
+    found[dose.dbName] = price;
+    console.log(`  ✓ ${dose.dbName}`);
   });
 
-  return found;
+  return { prices: found, warnings };
 }
 
 async function main() {
-  console.log(`\n[${new Date().toISOString()}] GLP-1 price update started`);
+  console.log(`\n[${new Date().toISOString()}] GLP-1 price update started${DRY_RUN ? ' — MODO SIMULACIÓN (--dry-run)' : ''}`);
   console.log(`Chrome: ${CHROME_PATH}`);
 
-  const docRef = db.collection('config').doc('prices');
-  const doc = await docRef.get();
-  if (!doc.exists) {
-    console.error('No prices document in Firebase. Open the app first to initialize it.');
-    process.exit(1);
+  let docRef = null;
+  let docData;
+  if (DRY_RUN) {
+    docData = await fetchPricesDocViaRest();
+    if (!docData.db) {
+      console.error('No prices document in Firebase.');
+      process.exit(1);
+    }
+  } else {
+    initFirebase();
+    docRef = db.collection('config').doc('prices');
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      console.error('No prices document in Firebase. Open the app first to initialize it.');
+      process.exit(1);
+    }
+    docData = doc.data();
   }
-
-  const docData = doc.data();
 
   // Respect manual mode
   if (docData.manualMode) {
     console.log('\n⏸ Modo manual activo — actualización automática pausada');
-    await admin.app().delete();
+    if (!DRY_RUN) await admin.app().delete();
     return;
   }
 
@@ -258,43 +368,107 @@ async function main() {
 
   const changedMeds = [];
   const newPricesForChanged = {};
+  const allWarnings = [];
+  let structureChanged = false;
+  let medsWithPrices = 0;
 
   try {
     for (const [medName, config] of Object.entries(MEDICATIONS)) {
       console.log(`\n── ${medName} ──`);
       try {
-        const prices = await scrapeMedication(browser, medName, config);
+        const { prices, warnings } = await scrapeMedication(browser, medName, config);
+        allWarnings.push(...warnings);
 
-        if (Object.keys(prices).length === 0) {
-          console.warn(`  ⚠ No prices found — skipping`);
-          continue;
-        }
         if (!currentDb[medName]) {
-          console.warn(`  ⚠ Not found in Firebase DB — skipping`);
+          allWarnings.push(`${medName}: no existe en la base de Firebase — se omite.`);
           continue;
         }
+        if (Object.keys(prices).length === 0) {
+          allWarnings.push(`${medName}: el scraper no encontró NINGÚN precio — ¿cambió la página de alfabeta? Se conservan los precios actuales.`);
+          continue;
+        }
+        medsWithPrices++;
+
+        const oldDoses = currentDb[medName].doses;
+        const oldByName = {};
+        oldDoses.forEach(d => { oldByName[d.name] = d; });
 
         let medChanged = false;
-        const updatedDoses = currentDb[medName].doses.map(dose => {
-          const newPvp = prices[dose.name];
-          if (newPvp !== undefined) {
-            if (newPvp !== dose.pvp) medChanged = true;
-            return { ...dose, pvp: newPvp };
+        const updatedDoses = [];
+
+        for (const doseCfg of config.doses) {
+          const existing = oldByName[doseCfg.dbName];
+          const oldPvp = existing ? existing.pvp : null;
+          const newPvp = prices[doseCfg.dbName];
+
+          // Sin precio scrapeado para esta dosis
+          if (newPvp === undefined) {
+            if (!doseCfg.optional) {
+              allWarnings.push(`${medName} ${doseCfg.dbName}: sin match en la página — se conserva ${oldPvp ? formatARS(oldPvp) : 'sin precio'}.`);
+            }
+            if (existing) {
+              updatedDoses.push(existing);
+            } else {
+              updatedDoses.push({ name: doseCfg.dbName, pvp: null });
+              structureChanged = true;
+              console.log(`  + Dosis nueva (aún sin precio publicado): ${doseCfg.dbName}`);
+            }
+            continue;
           }
-          console.warn(`  ⚠ No match for: "${dose.name}"`);
-          return dose;
-        });
+
+          // Dosis nueva o sin precio previo: se aplica directo
+          if (!oldPvp) {
+            updatedDoses.push({ ...(existing || { name: doseCfg.dbName }), pvp: newPvp });
+            medChanged = true;
+            if (!existing) structureChanged = true;
+            console.log(`  + ${doseCfg.dbName}: precio inicial ${formatARS(newPvp)}`);
+            continue;
+          }
+
+          // Control de cambios bruscos
+          const delta = Math.abs(newPvp - oldPvp) / oldPvp;
+          if (newPvp !== oldPvp && delta > BLOCK_CHANGE) {
+            allWarnings.push(`⛔ ${medName} ${doseCfg.dbName}: cambio de ${formatARS(oldPvp)} a ${formatARS(newPvp)} (${(delta * 100).toFixed(0)}%) BLOQUEADO por superar el ${(BLOCK_CHANGE * 100).toFixed(0)}%. Revisar y cargar manualmente si es correcto.`);
+            updatedDoses.push(existing);
+            continue;
+          }
+          if (newPvp !== oldPvp) {
+            medChanged = true;
+            if (delta > WARN_CHANGE) {
+              allWarnings.push(`⚠ ${medName} ${doseCfg.dbName}: cambio grande de ${formatARS(oldPvp)} a ${formatARS(newPvp)} (${(delta * 100).toFixed(0)}%) — aplicado, pero conviene verificarlo.`);
+            }
+          }
+          updatedDoses.push({ ...existing, pvp: newPvp });
+        }
+
+        // Conservar dosis que están en la BD pero no en la config del scraper
+        for (const d of oldDoses) {
+          if (!config.doses.some(cd => cd.dbName === d.name)) updatedDoses.push(d);
+        }
+
+        // Control: dos dosis distintas que quedaron con el MISMO precio
+        for (let i = 0; i < updatedDoses.length; i++) {
+          for (let j = i + 1; j < updatedDoses.length; j++) {
+            const a = updatedDoses[i], b = updatedDoses[j];
+            if (!a.pvp || !b.pvp || a.pvp !== b.pvp) continue;
+            const oldA = oldByName[a.name] && oldByName[a.name].pvp;
+            const oldB = oldByName[b.name] && oldByName[b.name].pvp;
+            if (oldA && oldB && oldA === oldB) continue; // ya eran iguales (ej. Wegovy 0.25/0.5)
+            allWarnings.push(`⚠ ${medName}: "${a.name}" y "${b.name}" quedaron con el MISMO PVP (${formatARS(a.pvp)}) — verificar que el matching sea correcto.`);
+          }
+        }
 
         if (medChanged) {
           changedMeds.push(medName);
-          currentDb[medName].doses = updatedDoses;
           newPricesForChanged[medName] = prices;
           console.log(`  → Precios actualizados`);
         } else {
           console.log(`  → Sin cambios`);
         }
+        currentDb[medName].doses = updatedDoses;
 
       } catch (err) {
+        allWarnings.push(`${medName}: error de scraping — ${err.message}`);
         console.error(`  ✗ ${err.message}`);
       }
 
@@ -304,15 +478,32 @@ async function main() {
     await browser.close();
   }
 
-  if (changedMeds.length > 0) {
+  if (allWarnings.length > 0) {
+    console.log('\n⚠ Advertencias:');
+    allWarnings.forEach(w => console.log('  - ' + w));
+  }
+
+  if (DRY_RUN) {
+    console.log('\n🔍 DRY RUN: no se escribió en Firebase ni se enviaron emails.');
+    console.log(`Cambios detectados: ${changedMeds.length > 0 ? changedMeds.join(', ') : 'ninguno'}`);
+    if (medsWithPrices === 0) {
+      console.error('✗ Ningún producto devolvió precios.');
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (changedMeds.length > 0 || structureChanged) {
     // 1. Update current prices in Firebase
     await docRef.set({
       db: currentDb,
-      manualMode: false,
+      manualMode: docData.manualMode || false,
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
     });
     console.log('\n✅ Precios actualizados en Firebase');
+  }
 
+  if (changedMeds.length > 0) {
     // 2. Save daily history snapshot
     const today = new Date().toISOString().split('T')[0];
     await db.collection('priceHistory').doc(today).set(
@@ -320,17 +511,30 @@ async function main() {
       { merge: true }
     );
     console.log(`📅 Historial guardado: ${today}`);
+  }
 
-    // 3. Send email notification
-    await sendEmail(changedMeds, newPricesForChanged);
+  // 3. Email: con cambios, o solo-advertencias para poder controlarlo
+  if (changedMeds.length > 0 || allWarnings.length > 0) {
+    await sendEmail(changedMeds, newPricesForChanged, allWarnings);
   } else {
     console.log('\n— Sin cambios de precios en esta pasada');
+  }
+
+  // Control: si ningún producto devolvió precios, fallar el job para que
+  // GitHub Actions lo marque en rojo y sea visible.
+  if (medsWithPrices === 0) {
+    console.error('✗ Ningún producto devolvió precios — marcando el job como fallido.');
+    process.exitCode = 1;
   }
 
   await admin.app().delete();
 }
 
-main().catch(err => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
+module.exports = { parsePrice, extractMgValues, matchDose, MEDICATIONS };
+
+if (require.main === module) {
+  main().catch(err => {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  });
+}
