@@ -6,6 +6,11 @@ on:
     - cron: '0 9 * * 1-5'   #  6:00 AM ART
     - cron: '0 15 * * 1-5'  # 12:00 PM ART
     - cron: '0 21 * * 1-5'  #  6:00 PM ART
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/update-prices.yml'
   workflow_dispatch: # Allow manual trigger for testing
     inputs:
       dry_run:
