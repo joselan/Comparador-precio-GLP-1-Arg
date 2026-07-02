@@ -1,0 +1,60 @@
+name: Keepalive
+
+# Evita que GitHub deshabilite los workflows PROGRAMADOS por inactividad.
+#
+# GitHub apaga los cron de un repo tras 60 días SIN COMMITS (correr el scraper
+# no cuenta como actividad — solo los commits). Eso fue lo que apagó al scraper.
+#
+# Este workflow corre semanalmente y:
+#   1. Si el repo estuvo quieto >= 45 días, hace un commit vacío. Eso reinicia
+#      el reloj de 60 días para TODOS los workflows programados, incluido este.
+#      Durante desarrollo normal (commits frecuentes) nunca se dispara.
+#   2. Reactiva vía API el scraper si lo encuentra apagado (red de seguridad).
+#
+# Nota: los push hechos con GITHUB_TOKEN no disparan otros workflows, así que
+# el commit vacío no genera corridas del scraper ni del deploy de reglas.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'   # Lunes 06:17 UTC, semanal
+  workflow_dispatch:
+
+permissions:
+  contents: write   # para pushear el commit keepalive
+  actions: write    # para reactivar workflows deshabilitados
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Re-enable scheduled workflows if disabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          for wf in update-prices.yml keepalive.yml; do
+            state=$(gh api "repos/$REPO/actions/workflows/$wf" --jq .state 2>/dev/null || echo "unknown")
+            echo "$wf: $state"
+            if [ "$state" = "disabled_inactivity" ]; then
+              gh api -X PUT "repos/$REPO/actions/workflows/$wf/enable" && echo "  -> reactivado $wf"
+            fi
+          done
+
+      - name: Empty commit if the repo has been quiet
+        run: |
+          days=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 86400 ))
+          echo "Días desde el último commit: $days"
+          if [ "$days" -ge 45 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "chore: keepalive para no deshabilitar los workflows programados"
+            git push
+            echo "-> commit keepalive pusheado"
+          else
+            echo "-> hubo actividad reciente, no hace falta commit"
+          fi
