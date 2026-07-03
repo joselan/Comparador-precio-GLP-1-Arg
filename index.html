@@ -251,6 +251,8 @@
             const [grouped, setGrouped] = useState(false);
             const [optionsOpen, setOptionsOpen] = useState(false);
             const [showHistory, setShowHistory] = useState(false);
+            const [selected, setSelected] = useState({});      // filas elegidas para comparar (label|dose → true)
+            const [onlySelected, setOnlySelected] = useState(false); // ver sólo las elegidas
 
             // 1. Cargar datos en Tiempo Real desde Firebase
             useEffect(() => {
@@ -390,19 +392,41 @@
                 return { list, pending, byLab };
             }, [db, med, doseIdx, ooss, usePsp, isMonthly, recetario]);
 
-            // Precio máximo del ranking, para escalar las barras visuales de la tabla
-            const maxComparePrice = comparison.list.reduce((m, it) => Math.max(m, it.perMonth), 0) || 1;
+            // --- Selección para comparar filas individuales ---
+            const keyOf = (label, dose) => label + '|' + dose;
+            const isSelected = (label, dose) => !!selected[keyOf(label, dose)];
+            const selectedCount = Object.keys(selected).length;
+            const toggleSelect = (label, dose) => setSelected(s => {
+                const k = keyOf(label, dose);
+                const n = { ...s };
+                if (n[k]) delete n[k]; else n[k] = true;
+                if (Object.keys(n).length === 0) setOnlySelected(false);
+                return n;
+            });
+            const clearSelected = () => { setSelected({}); setOnlySelected(false); };
+
+            // En modo "Elegidos" se muestran sólo las filas elegidas; las barras se
+            // re-escalan al máximo del set mostrado para que la comparación sea clara.
+            const displayedList = onlySelected ? comparison.list.filter(it => isSelected(it.label, it.dose)) : comparison.list;
+            const maxComparePrice = displayedList.reduce((m, it) => Math.max(m, it.perMonth), 0) || 1;
 
             // Fila de la tabla (compartida entre la vista por precio y por laboratorio)
             const renderRow = (item) => {
                 const st = styleFor(item.color);
                 const Glyph = glyphFor(item.label);
-                const selected = detailOpen && item.label === med && item.dose === activeDose.name;
+                const isDetail = detailOpen && item.label === med && item.dose === activeDose.name;
+                const isSel = isSelected(item.label, item.dose);
                 return (
-                    <button key={item.label + item.dose} onClick={() => openDetail(item.label, item.dIdx)} className={`w-full text-left flex items-center gap-3 px-4 py-2.5 border-t border-slate-100 dark:border-slate-700/50 active:bg-slate-100 dark:active:bg-slate-700/40 transition ${selected ? 'bg-blue-50/80 dark:bg-blue-900/25' : ''}`}>
-                        {imgFor(item.label, item.dose)
-                            ? <span className="w-11 h-11 rounded-xl bg-white border border-slate-200 dark:border-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden p-0.5 shadow-sm"><img src={imgFor(item.label, item.dose)} alt={item.label} className="max-w-full max-h-full object-contain" loading="lazy" /></span>
-                            : <span className={`w-11 h-11 rounded-xl flex items-center justify-center text-white flex-shrink-0 shadow-sm ${st.chip}`}><Glyph /></span>}
+                    <div key={item.label + item.dose} onClick={() => openDetail(item.label, item.dIdx)} role="button" tabIndex={0} className={`w-full cursor-pointer text-left flex items-center gap-3 px-4 py-2.5 border-t border-slate-100 dark:border-slate-700/50 active:bg-slate-100 dark:active:bg-slate-700/40 transition ${isSel ? 'bg-blue-50 dark:bg-blue-900/25' : isDetail ? 'bg-blue-50/80 dark:bg-blue-900/25' : ''}`}>
+                        <div className="relative flex-shrink-0">
+                            {imgFor(item.label, item.dose)
+                                ? <span className="w-11 h-11 rounded-xl bg-white border border-slate-200 dark:border-slate-600 flex items-center justify-center overflow-hidden p-0.5 shadow-sm"><img src={imgFor(item.label, item.dose)} alt={item.label} className="max-w-full max-h-full object-contain" loading="lazy" /></span>
+                                : <span className={`w-11 h-11 rounded-xl flex items-center justify-center text-white shadow-sm ${st.chip}`}><Glyph /></span>}
+                            {/* Círculo de selección superpuesto en la esquina de la imagen */}
+                            <button onClick={(e) => { e.stopPropagation(); toggleSelect(item.label, item.dose); }} aria-label={isSel ? 'Quitar de la comparación' : 'Elegir para comparar'} className={`absolute -top-1.5 -left-1.5 w-[22px] h-[22px] rounded-full flex items-center justify-center border-2 shadow ring-2 ring-white dark:ring-slate-800 transition ${isSel ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-400 text-transparent'}`}>
+                                {isSel && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>}
+                            </button>
+                        </div>
                         <div className="min-w-0 flex-1">
                             <div className="flex items-baseline justify-between gap-2">
                                 <span className="truncate min-w-0">
@@ -415,7 +439,7 @@
                                 <div className={`h-full rounded-full ${barColorFor(item.lab)}`} style={{ width: Math.max(6, (item.perMonth / maxComparePrice) * 100) + '%' }}></div>
                             </div>
                         </div>
-                    </button>
+                    </div>
                 );
             };
 
@@ -563,25 +587,43 @@
                     <main className="max-w-2xl mx-auto px-3 sm:px-4 pt-3 pb-40 space-y-3">
                         {/* Tabla comparativa — protagonista (sin título ni selector arriba) */}
                         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
+                            {/* Barra de selección: elegir filas para comparar sólo esas */}
+                            <div className="px-3 py-2 flex items-center justify-between gap-2">
+                                {selectedCount > 0 ? (
+                                    <div className="flex items-center gap-1 p-0.5 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
+                                        <button onClick={() => setOnlySelected(false)} className={`px-3 py-1 rounded-md text-[13px] font-bold transition ${!onlySelected ? 'bg-white dark:bg-slate-800 shadow text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Todos</button>
+                                        <button onClick={() => setOnlySelected(true)} className={`px-3 py-1 rounded-md text-[13px] font-bold transition ${onlySelected ? 'bg-blue-600 text-white shadow' : 'text-slate-500 dark:text-slate-400'}`}>Elegidos · {selectedCount}</button>
+                                    </div>
+                                ) : (
+                                    <span className="text-[13px] text-slate-400 dark:text-slate-500">Tocá el círculo para elegir y comparar</span>
+                                )}
+                                {selectedCount > 0 && <button onClick={clearSelected} className="text-[13px] font-semibold text-blue-600 dark:text-blue-400 px-2 py-1 flex-shrink-0">Limpiar</button>}
+                            </div>
+
                             {!grouped ? (
                                 <div>
-                                    {comparison.list.map(item => renderRow(item))}
-                                    {comparison.pending.map((p, i) => renderPendingRow(p, 'p' + i))}
+                                    {displayedList.map(item => renderRow(item))}
+                                    {!onlySelected && comparison.pending.map((p, i) => renderPendingRow(p, 'p' + i))}
                                 </div>
                             ) : (
                                 <div>
-                                    {comparison.byLab.map(g => (
+                                    {comparison.byLab.map(g => {
+                                        const rows = onlySelected ? g.rows.filter(it => isSelected(it.label, it.dose)) : g.rows;
+                                        const pend = onlySelected ? [] : g.pending;
+                                        if (!rows.length && !pend.length) return null;
+                                        return (
                                         <div key={g.lab}>
                                             <div className={`px-4 py-2.5 flex items-center justify-between gap-2.5 border-t border-slate-100 dark:border-slate-700/50 ${styleFor(g.color).tint}`}>
                                                 <div className="bg-white rounded-lg px-2.5 py-1.5 shadow-sm flex items-center">
                                                     <img src={labLogo[g.lab]} alt={g.lab} className="h-5 w-auto object-contain" style={{ maxWidth: '130px' }} />
                                                 </div>
-                                                <span className="text-[12px] font-bold text-slate-500 dark:text-slate-300">{g.rows.length + g.pending.length} presentaciones</span>
+                                                <span className="text-[12px] font-bold text-slate-500 dark:text-slate-300">{rows.length + pend.length} presentaciones</span>
                                             </div>
-                                            {g.rows.map(item => renderRow(item))}
-                                            {g.pending.map((p, i) => renderPendingRow(p, g.lab + '-p' + i))}
+                                            {rows.map(item => renderRow(item))}
+                                            {pend.map((p, i) => renderPendingRow(p, g.lab + '-p' + i))}
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
 
@@ -612,9 +654,7 @@
                         <div className="max-w-2xl mx-auto px-3">
                             {optionsOpen && (
                                 <div className="mb-2 ml-auto w-64 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-2">
-                                    <button onClick={() => { setShowHistory(true); setOptionsOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">
-                                        <Icons.Chart /> Historial de precios
-                                    </button>
+                                    {/* "Historial de precios" oculto hasta que los datos se vean bien. */}
                                     <button onClick={() => { setTut(true); setOptionsOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">
                                         <Icons.Help /> Cómo funciona
                                     </button>
