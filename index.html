@@ -394,7 +394,7 @@
             const maxComparePrice = comparison.list.reduce((m, it) => Math.max(m, it.perMonth), 0) || 1;
 
             // Fila de la tabla (compartida entre la vista por precio y por laboratorio)
-            const renderRow = (item, hideLab) => {
+            const renderRow = (item) => {
                 const st = styleFor(item.color);
                 const Glyph = glyphFor(item.label);
                 const selected = detailOpen && item.label === med && item.dose === activeDose.name;
@@ -405,14 +405,13 @@
                             : <span className={`w-11 h-11 rounded-xl flex items-center justify-center text-white flex-shrink-0 shadow-sm ${st.chip}`}><Glyph /></span>}
                         <div className="min-w-0 flex-1">
                             <div className="flex items-baseline justify-between gap-2">
-                                <span className="font-bold text-sm text-slate-900 dark:text-white truncate min-w-0">{item.label}</span>
+                                <span className="truncate min-w-0">
+                                    <span className="font-bold text-sm text-slate-900 dark:text-white">{item.label}</span>
+                                    <span className="text-[13px] text-slate-400"> {shortDose(item.dose)}</span>
+                                </span>
                                 <span className="font-black text-sm tabular-nums flex-shrink-0 text-slate-900 dark:text-white">{formatCompact(item.perMonth)}</span>
                             </div>
-                            <div className="flex items-center justify-between gap-2 mt-0.5">
-                                <span className="text-[13px] text-slate-400 truncate min-w-0">{shortDose(item.dose)}{hideLab ? '' : ' · ' + item.lab}</span>
-                                {isMonthly && item.canSplit && <span className="text-[12px] text-slate-400 tabular-nums flex-shrink-0">caja {formatCompact(item.final)}</span>}
-                            </div>
-                            <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700/60 overflow-hidden">
+                            <div className="mt-2 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700/60 overflow-hidden">
                                 <div className={`h-full rounded-full ${barColorFor(item.lab)}`} style={{ width: Math.max(6, (item.perMonth / maxComparePrice) * 100) + '%' }}></div>
                             </div>
                         </div>
@@ -427,10 +426,10 @@
                         {imgFor(p.label, p.dose)
                             ? <span className="w-11 h-11 rounded-xl bg-white border border-slate-200 dark:border-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden p-0.5"><img src={imgFor(p.label, p.dose)} alt={p.label} className="max-w-full max-h-full object-contain" loading="lazy" /></span>
                             : <span className={`w-11 h-11 rounded-xl flex items-center justify-center text-white flex-shrink-0 ${styleFor(p.color).chip}`}><Glyph /></span>}
-                        <div className="min-w-0 flex-1">
+                        <p className="min-w-0 flex-1 truncate">
                             <span className="font-bold text-sm text-slate-700 dark:text-slate-300">{p.label}</span>
-                            <div className="text-[13px] text-slate-400 truncate">{shortDose(p.dose)} · {p.lab}</div>
-                        </div>
+                            <span className="text-[13px] text-slate-400"> {shortDose(p.dose)}</span>
+                        </p>
                         <span className="text-[12px] font-semibold text-slate-400 flex-shrink-0">Sin precio aún</span>
                     </div>
                 );
@@ -566,7 +565,7 @@
                         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
                             {!grouped ? (
                                 <div>
-                                    {comparison.list.map(item => renderRow(item, false))}
+                                    {comparison.list.map(item => renderRow(item))}
                                     {comparison.pending.map((p, i) => renderPendingRow(p, 'p' + i))}
                                 </div>
                             ) : (
@@ -579,7 +578,7 @@
                                                 </div>
                                                 <span className="text-[12px] font-bold text-slate-500 dark:text-slate-300">{g.rows.length + g.pending.length} presentaciones</span>
                                             </div>
-                                            {g.rows.map(item => renderRow(item, true))}
+                                            {g.rows.map(item => renderRow(item))}
                                             {g.pending.map((p, i) => renderPendingRow(p, g.lab + '-p' + i))}
                                         </div>
                                     ))}
