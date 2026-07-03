@@ -1,8 +1,13 @@
 name: Backfill Price History (Wayback)
 
 # Reconstruye historial de precios desde snapshots archivados de alfabeta.net en
-# la Wayback Machine. Sólo se dispara a mano (workflow_dispatch). Por defecto corre
-# en modo sondeo (dry-run): busca y muestra qué encontraría SIN escribir en Firebase.
+# la Wayback Machine.
+#
+# Se puede disparar de dos formas:
+#  - workflow_dispatch (botón "Run workflow"): respeta los inputs de abajo.
+#  - push a main que toque este workflow o el script: usa PUSH_MODE (abajo) para
+#    decidir si sondea (dry) o carga de verdad (write). Sirve para dispararlo
+#    desde herramientas que no tienen permiso de Actions:write.
 on:
   workflow_dispatch:
     inputs:
@@ -18,6 +23,16 @@ on:
         description: 'Pisar fechas ya cargadas en el historial (normalmente NO)'
         type: boolean
         default: false
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/backfill-history.js'
+      - '.github/workflows/backfill-history.yml'
+
+# Modo para las corridas por PUSH (que no tienen inputs): "dry" = sondeo sin
+# escribir; "write" = carga real. Se cambia esta línea y se pushea.
+env:
+  PUSH_MODE: dry
 
 jobs:
   backfill:
@@ -36,11 +51,23 @@ jobs:
         working-directory: scripts
 
       - name: Run backfill
-        run: node backfill-history.js ${{ (inputs.dry_run == 'true' || inputs.dry_run == true) && '--dry-run' || '' }}
         working-directory: scripts
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          WEEKS: ${{ inputs.weeks }}
-          BACKFILL_OVERWRITE: ${{ (inputs.overwrite == 'true' || inputs.overwrite == true) && '1' || '0' }}
-          # Google Chrome viene preinstalado en los runners ubuntu-latest
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome-stable
+          EVENT: ${{ github.event_name }}
+          IN_DRY: ${{ inputs.dry_run }}
+          IN_WEEKS: ${{ inputs.weeks }}
+          IN_OW: ${{ inputs.overwrite }}
+        run: |
+          set -e
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            [ "$IN_DRY" = "true" ] && DRY="--dry-run" || DRY=""
+            export WEEKS="${IN_WEEKS:-52}"
+            [ "$IN_OW" = "true" ] && export BACKFILL_OVERWRITE=1 || true
+          else
+            [ "$PUSH_MODE" = "write" ] && DRY="" || DRY="--dry-run"
+            export WEEKS="52"
+          fi
+          echo "event=$EVENT · modo=${DRY:-WRITE} · weeks=$WEEKS · overwrite=${BACKFILL_OVERWRITE:-0}"
+          node backfill-history.js $DRY
