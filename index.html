@@ -555,7 +555,7 @@
             return (
                 <div className="min-h-screen text-slate-800 dark:text-slate-100 transition-colors">
                     {/* Contenido: la comparativa ocupa toda la parte de arriba */}
-                    <main className="max-w-2xl mx-auto px-3 sm:px-4 pt-3 pb-44 space-y-3">
+                    <main className="max-w-2xl mx-auto px-3 sm:px-4 pt-3 pb-40 space-y-3">
                         {/* Tabla comparativa — protagonista (sin título ni selector arriba) */}
                         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
                             {!grouped ? (
@@ -621,36 +621,33 @@
                         </div>
                         <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 shadow-[0_-6px_24px_rgba(0,0,0,0.08)]">
                             <div className="max-w-2xl mx-auto p-3 space-y-2" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
+                                {/* Fila 1: descuento extra + vista + menú */}
                                 <div className="flex items-center gap-2">
                                     <label className="text-[13px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide flex-shrink-0">Dto. extra</label>
-                                    <select value={ooss} onChange={e => setOoss(Number(e.target.value))} className="py-1.5 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl text-sm font-bold focus:ring-2 ring-blue-500 outline-none cursor-pointer ml-auto">
+                                    <select value={ooss} onChange={e => setOoss(Number(e.target.value))} className="py-1.5 px-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl text-sm font-bold focus:ring-2 ring-blue-500 outline-none cursor-pointer">
                                         {Array.from({ length: 21 }, (_, i) => i * 5).map(val => (
                                             <option key={val} value={val}>{val}%</option>
                                         ))}
                                     </select>
+                                    <button onClick={() => setGrouped(g => !g)} className="ml-auto flex-shrink-0 py-2 px-2.5 rounded-xl text-[13px] font-bold border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 active:scale-95 transition" aria-label="Cambiar vista: por precio o por laboratorio">
+                                        {grouped ? 'Por lab.' : 'Por precio'}
+                                    </button>
                                     <button onClick={() => setOptionsOpen(o => !o)} className={`w-9 h-9 flex items-center justify-center rounded-xl border flex-shrink-0 transition ${optionsOpen ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 border-transparent' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300'}`} aria-label="Opciones">
                                         <Icons.Dots />
                                     </button>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button onClick={() => setUsePsp(!usePsp)} className={`flex items-center justify-center gap-2 py-2 px-2 rounded-xl text-xs sm:text-sm font-bold border transition ${usePsp ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
-                                        <span className={`w-2 h-2 rounded-full ${usePsp ? 'bg-white' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
-                                        Descuento PSP
+                                {/* Fila 2: los tres toggles (el color azul indica activo).
+                                    Anchos proporcionales para que "Rendir 2 meses" entre en una línea. */}
+                                <div className="grid grid-cols-[1fr_1.35fr_1.15fr] gap-2">
+                                    <button onClick={() => setUsePsp(!usePsp)} className={`py-2 px-1.5 rounded-xl text-[13px] font-bold border transition whitespace-nowrap ${usePsp ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
+                                        Dto. PSP
                                     </button>
-                                    <button onClick={() => setIsMonthly(!isMonthly)} className={`flex items-center justify-center gap-2 py-2 px-2 rounded-xl text-xs sm:text-sm font-bold border transition ${isMonthly ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
-                                        <span className={`w-2 h-2 rounded-full ${isMonthly ? 'bg-white' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                                    <button onClick={() => setIsMonthly(!isMonthly)} className={`py-2 px-1.5 rounded-xl text-[13px] font-bold border transition whitespace-nowrap ${isMonthly ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
                                         Rendir 2 meses
                                     </button>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <button onClick={() => setRecetario(!recetario)} className={`flex-1 min-w-0 flex items-center justify-center gap-2 py-2 px-2 rounded-xl text-xs sm:text-sm font-bold border transition ${recetario ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
-                                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${recetario ? 'bg-white' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
-                                        <span className="truncate">Recetario Solidario</span>
-                                    </button>
-                                    <button onClick={() => setGrouped(g => !g)} className="flex-shrink-0 py-2 px-2.5 rounded-xl text-[13px] font-bold border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 active:scale-95 transition" aria-label="Cambiar vista: por precio o por laboratorio">
-                                        {grouped ? 'Por lab.' : 'Por precio'}
+                                    <button onClick={() => setRecetario(!recetario)} className={`py-2 px-1.5 rounded-xl text-[13px] font-bold border transition whitespace-nowrap ${recetario ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
+                                        Rx Solidario
                                     </button>
                                 </div>
                             </div>
