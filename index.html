@@ -154,6 +154,14 @@
             'Novo Nordisk': 'Imagenes/novo-nordisk-logo-1.svg',
             'Elea': 'Imagenes/images.png',
         };
+        // Color de la barra de precio por laboratorio: Elea celeste claro,
+        // Novo azul oscuro, Adium violeta.
+        const labBarColor = {
+            'Elea': 'bg-sky-400',
+            'Novo Nordisk': 'bg-blue-800',
+            'Adium': 'bg-violet-600',
+        };
+        const barColorFor = (lab) => labBarColor[lab] || 'bg-slate-400';
         // Imagen de producto por dosis (si existe) o representativa del producto
         const IMG = 'Imagenes/';
         const doseImg = {
@@ -384,30 +392,28 @@
 
             // Precio máximo del ranking, para escalar las barras visuales de la tabla
             const maxComparePrice = comparison.list.reduce((m, it) => Math.max(m, it.perMonth), 0) || 1;
-            const cheapestKey = comparison.list[0] ? comparison.list[0].label + '|' + comparison.list[0].dose : null;
 
             // Fila de la tabla (compartida entre la vista por precio y por laboratorio)
             const renderRow = (item, hideLab) => {
-                const isCheapest = cheapestKey === item.label + '|' + item.dose;
                 const st = styleFor(item.color);
                 const Glyph = glyphFor(item.label);
                 const selected = detailOpen && item.label === med && item.dose === activeDose.name;
                 return (
-                    <button key={item.label + item.dose} onClick={() => openDetail(item.label, item.dIdx)} className={`w-full text-left flex items-center gap-3 px-4 py-2.5 border-t border-slate-100 dark:border-slate-700/50 active:bg-slate-100 dark:active:bg-slate-700/40 transition ${selected ? 'bg-blue-50/80 dark:bg-blue-900/25' : isCheapest ? 'bg-emerald-50/40 dark:bg-emerald-900/10' : ''}`}>
+                    <button key={item.label + item.dose} onClick={() => openDetail(item.label, item.dIdx)} className={`w-full text-left flex items-center gap-3 px-4 py-2.5 border-t border-slate-100 dark:border-slate-700/50 active:bg-slate-100 dark:active:bg-slate-700/40 transition ${selected ? 'bg-blue-50/80 dark:bg-blue-900/25' : ''}`}>
                         {imgFor(item.label, item.dose)
                             ? <span className="w-11 h-11 rounded-xl bg-white border border-slate-200 dark:border-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden p-0.5 shadow-sm"><img src={imgFor(item.label, item.dose)} alt={item.label} className="max-w-full max-h-full object-contain" loading="lazy" /></span>
                             : <span className={`w-11 h-11 rounded-xl flex items-center justify-center text-white flex-shrink-0 shadow-sm ${st.chip}`}><Glyph /></span>}
                         <div className="min-w-0 flex-1">
                             <div className="flex items-baseline justify-between gap-2">
                                 <span className="font-bold text-sm text-slate-900 dark:text-white truncate min-w-0">{item.label}</span>
-                                <span className={`font-black text-sm tabular-nums flex-shrink-0 ${isCheapest ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'}`}>{formatCompact(item.perMonth)}</span>
+                                <span className="font-black text-sm tabular-nums flex-shrink-0 text-slate-900 dark:text-white">{formatCompact(item.perMonth)}</span>
                             </div>
                             <div className="flex items-center justify-between gap-2 mt-0.5">
                                 <span className="text-[13px] text-slate-400 truncate min-w-0">{shortDose(item.dose)}{hideLab ? '' : ' · ' + item.lab}</span>
                                 {isMonthly && item.canSplit && <span className="text-[12px] text-slate-400 tabular-nums flex-shrink-0">caja {formatCompact(item.final)}</span>}
                             </div>
                             <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700/60 overflow-hidden">
-                                <div className={`h-full rounded-full ${item.color}`} style={{ width: Math.max(6, (item.perMonth / maxComparePrice) * 100) + '%' }}></div>
+                                <div className={`h-full rounded-full ${barColorFor(item.lab)}`} style={{ width: Math.max(6, (item.perMonth / maxComparePrice) * 100) + '%' }}></div>
                             </div>
                         </div>
                     </button>
