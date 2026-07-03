@@ -14,6 +14,19 @@
                 extend: {
                     fontFamily: {
                         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+                    },
+                    // Tipografía +20%: escalamos toda la escala nombrada de Tailwind.
+                    // (Los tamaños arbitrarios text-[Npx] se ajustan uno a uno en el markup.)
+                    fontSize: {
+                        'xs':   ['0.9rem',   { lineHeight: '1.2rem' }],
+                        'sm':   ['1.05rem',  { lineHeight: '1.5rem' }],
+                        'base': ['1.2rem',   { lineHeight: '1.8rem' }],
+                        'lg':   ['1.35rem',  { lineHeight: '2.1rem' }],
+                        'xl':   ['1.5rem',   { lineHeight: '2.1rem' }],
+                        '2xl':  ['1.8rem',   { lineHeight: '2.4rem' }],
+                        '3xl':  ['2.25rem',  { lineHeight: '2.7rem' }],
+                        '4xl':  ['2.7rem',   { lineHeight: '3rem' }],
+                        '5xl':  ['3.6rem',   { lineHeight: '1' }],
                     }
                 }
             }
@@ -186,6 +199,12 @@
             return 0.30;
         };
 
+        // Recetario Solidario: 20% extra SOLO en productos de Novo Nordisk.
+        // Según los Términos y Condiciones de Novo, es el único beneficio que se
+        // acumula con Novo a la Par, y aplica sobre el saldo ya descontado.
+        const recetarioPercFor = (item, active) =>
+            (active && item && item.lab === 'Novo Nordisk') ? 0.20 : 0;
+
         // Combina la BD local (estructura de referencia: productos y dosis nuevos
         // definidos en el código) con la de Firebase (precios vigentes). Los precios
         // de Firebase mandan; las dosis que aún no existen en Firebase se agregan
@@ -215,6 +234,7 @@
             const [doseIdx, setDoseIdx] = useState(0);
             const [ooss, setOoss] = useState(0);
             const [usePsp, setUsePsp] = useState(true);
+            const [recetario, setRecetario] = useState(false);
             const [isMonthly, setIsMonthly] = useState(false);
             const [dark, setDark] = useState(false);
             const [tut, setTut] = useState(false);
@@ -266,22 +286,25 @@
             };
 
             // Orden de cálculo (según Novo a la Par y la regla original):
-            // 1) OOSS/Prepaga sobre el PVP → "saldo a abonar en mostrador"
+            // 1) OOSS/Prepaga (Dto. extra) sobre el PVP → "saldo a abonar en mostrador"
             // 2) PSP (30%/60%) sobre ESE saldo
+            // 3) Recetario Solidario (20% Novo) sobre el saldo ya con PSP
             // El total final es el mismo sin importar el orden (descuentos
             // multiplicativos), pero así el desglose refleja lo que hace el laboratorio.
-            const calc = (pvp, item, pspPerc, oossPerc, monthly) => {
+            const calc = (pvp, item, pspPerc, oossPerc, monthly, recetarioPerc) => {
                 const oossAmt = pvp * (oossPerc / 100);
                 const saldoMostrador = pvp - oossAmt;         // precio a abonar en mostrador
                 const pspAmt = saldoMostrador * pspPerc;      // PSP sobre el saldo post-OOSS
-                const final = saldoMostrador - pspAmt;
+                const afterPsp = saldoMostrador - pspAmt;
+                const recAmt = afterPsp * (recetarioPerc || 0); // Recetario Solidario sobre el saldo con PSP
+                const final = afterPsp - recAmt;
                 const perMonth = (monthly && item.canSplit) ? final / 2 : final;
-                return { pvp, oossAmt, pspAmt, final, perMonth, pspPerc };
+                return { pvp, oossAmt, pspAmt, recAmt, final, perMonth, pspPerc, recetarioPerc: recetarioPerc || 0 };
             };
 
             const current = db[med] || defaultDb['Mounjaro'];
             const activeDose = current.doses[doseIdx] || current.doses[0];
-            const res = calc(activeDose.pvp, current, pspPercFor(med, current, activeDose.name, usePsp), ooss, isMonthly);
+            const res = calc(activeDose.pvp, current, pspPercFor(med, current, activeDose.name, usePsp), ooss, isMonthly, recetarioPercFor(current, recetario));
 
             // Ahorro respecto del PVP (lo que descuentan PSP + OOSS sobre la caja)
             const savings = res.pvp ? res.pvp - res.final : 0;
@@ -293,8 +316,9 @@
                 lines.push('💊 Comparador de precios GLP-1/GIP Argentina');
                 lines.push(`${med} ${activeDose.name} — ${current.lab}`);
                 lines.push(`PVP: ${formatCurrency(res.pvp)}`);
-                if (ooss > 0) lines.push(`OOSS/Prepaga/Farmacia (${ooss}%): -${formatCurrency(res.oossAmt)}`);
+                if (ooss > 0) lines.push(`Dto. extra (${ooss}%): -${formatCurrency(res.oossAmt)}`);
                 if (usePsp && current.hasPsp) lines.push(`Descuento PSP (${current.psp} ${(res.pspPerc * 100).toFixed(0)}%): -${formatCurrency(res.pspAmt)}`);
+                if (res.recetarioPerc > 0) lines.push(`Recetario Solidario (20%): -${formatCurrency(res.recAmt)}`);
                 lines.push(`Precio final de la caja: ${formatCurrency(res.final)}`);
                 if (isMonthly && current.canSplit) lines.push(`Costo por mes (rinde 2 meses): ${formatCurrency(res.perMonth)}`);
                 if (savings > 0) lines.push(`Ahorro vs PVP: ${formatCurrency(savings)} (${savingsPct.toFixed(0)}%)`);
@@ -342,7 +366,7 @@
                     db[k].doses.forEach((d, di) => {
                         // Dosis sin PVP publicado aún: no entran al ranking
                         if (!d.pvp) { pending.push({ label: k, dose: d.name, dIdx: di, color: db[k].color, lab: db[k].lab }); return; }
-                        const r = calc(d.pvp, db[k], pspPercFor(k, db[k], d.name, usePsp), ooss, isMonthly);
+                        const r = calc(d.pvp, db[k], pspPercFor(k, db[k], d.name, usePsp), ooss, isMonthly, recetarioPercFor(db[k], recetario));
                         list.push({ label: k, dose: d.name, dIdx: di, ...r, color: db[k].color, canSplit: db[k].canSplit, lab: db[k].lab });
                     });
                 });
@@ -363,7 +387,7 @@
                     .sort((a, b) => a.min - b.min);
 
                 return { list, pending, byLab };
-            }, [db, med, doseIdx, ooss, usePsp, isMonthly]);
+            }, [db, med, doseIdx, ooss, usePsp, isMonthly, recetario]);
 
             // Precio máximo del ranking, para escalar las barras visuales de la tabla
             const maxComparePrice = comparison.list.reduce((m, it) => Math.max(m, it.perMonth), 0) || 1;
@@ -377,18 +401,20 @@
                 const selected = detailOpen && item.label === med && item.dose === activeDose.name;
                 return (
                     <button key={item.label + item.dose} onClick={() => openDetail(item.label, item.dIdx)} className={`w-full text-left flex items-center gap-3 px-4 py-2.5 border-t border-slate-100 dark:border-slate-700/50 active:bg-slate-100 dark:active:bg-slate-700/40 transition ${selected ? 'bg-blue-50/80 dark:bg-blue-900/25' : isCheapest ? 'bg-emerald-50/40 dark:bg-emerald-900/10' : ''}`}>
-                        <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-white flex-shrink-0 shadow-sm ${st.chip}`}><Glyph /></span>
+                        {imgFor(item.label, item.dose)
+                            ? <span className="w-11 h-11 rounded-xl bg-white border border-slate-200 dark:border-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden p-0.5 shadow-sm"><img src={imgFor(item.label, item.dose)} alt={item.label} className="max-w-full max-h-full object-contain" loading="lazy" /></span>
+                            : <span className={`w-11 h-11 rounded-xl flex items-center justify-center text-white flex-shrink-0 shadow-sm ${st.chip}`}><Glyph /></span>}
                         <div className="min-w-0 flex-1">
                             <div className="flex items-baseline justify-between gap-2">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className="font-bold text-sm text-slate-900 dark:text-white truncate">{item.label}</span>
-                                    {isCheapest && <span className="flex-shrink-0 text-[9px] font-black text-emerald-700 bg-emerald-100 dark:bg-emerald-900/50 dark:text-emerald-300 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Más barato</span>}
-                                </div>
+                                <span className="font-bold text-sm text-slate-900 dark:text-white truncate min-w-0">{item.label}</span>
                                 <span className={`font-black text-sm tabular-nums flex-shrink-0 ${isCheapest ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'}`}>{formatCompact(item.perMonth)}</span>
                             </div>
                             <div className="flex items-center justify-between gap-2 mt-0.5">
-                                <span className="text-[11px] text-slate-400 truncate">{shortDose(item.dose)}{hideLab ? '' : ' · ' + item.lab}</span>
-                                {isMonthly && item.canSplit && <span className="text-[10px] text-slate-400 tabular-nums flex-shrink-0">caja {formatCompact(item.final)}</span>}
+                                <span className="flex items-center gap-1.5 min-w-0">
+                                    {isCheapest && <span className="flex-shrink-0 text-[11px] font-black text-emerald-700 bg-emerald-100 dark:bg-emerald-900/50 dark:text-emerald-300 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Más barato</span>}
+                                    <span className="text-[13px] text-slate-400 truncate">{shortDose(item.dose)}{hideLab ? '' : ' · ' + item.lab}</span>
+                                </span>
+                                {isMonthly && item.canSplit && <span className="text-[12px] text-slate-400 tabular-nums flex-shrink-0">caja {formatCompact(item.final)}</span>}
                             </div>
                             <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700/60 overflow-hidden">
                                 <div className={`h-full rounded-full ${item.color}`} style={{ width: Math.max(6, (item.perMonth / maxComparePrice) * 100) + '%' }}></div>
@@ -402,12 +428,14 @@
                 const Glyph = glyphFor(p.label);
                 return (
                     <div key={key} className="w-full flex items-center gap-3 px-4 py-2.5 border-t border-slate-100 dark:border-slate-700/50 opacity-60">
-                        <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-white flex-shrink-0 ${styleFor(p.color).chip}`}><Glyph /></span>
+                        {imgFor(p.label, p.dose)
+                            ? <span className="w-11 h-11 rounded-xl bg-white border border-slate-200 dark:border-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden p-0.5"><img src={imgFor(p.label, p.dose)} alt={p.label} className="max-w-full max-h-full object-contain" loading="lazy" /></span>
+                            : <span className={`w-11 h-11 rounded-xl flex items-center justify-center text-white flex-shrink-0 ${styleFor(p.color).chip}`}><Glyph /></span>}
                         <div className="min-w-0 flex-1">
                             <span className="font-bold text-sm text-slate-700 dark:text-slate-300">{p.label}</span>
-                            <div className="text-[11px] text-slate-400 truncate">{shortDose(p.dose)} · {p.lab}</div>
+                            <div className="text-[13px] text-slate-400 truncate">{shortDose(p.dose)} · {p.lab}</div>
                         </div>
-                        <span className="text-[10px] font-semibold text-slate-400 flex-shrink-0">Sin precio aún</span>
+                        <span className="text-[12px] font-semibold text-slate-400 flex-shrink-0">Sin precio aún</span>
                     </div>
                 );
             };
@@ -497,11 +525,11 @@
                                             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1 truncate">{medName}</p>
                                             {info ? (
                                                 <React.Fragment>
-                                                    <p className="text-[10px] text-slate-400 mb-0.5">{info.date}</p>
+                                                    <p className="text-[12px] text-slate-400 mb-0.5">{info.date}</p>
                                                     {firstDose && <p className="text-xs font-bold text-slate-700 dark:text-slate-200">{formatCurrency(firstDose[1])}</p>}
                                                 </React.Fragment>
                                             ) : (
-                                                <p className="text-[10px] text-slate-400">Sin datos</p>
+                                                <p className="text-[12px] text-slate-400">Sin datos</p>
                                             )}
                                         </div>
                                     );
@@ -538,7 +566,7 @@
                         {lastUpdated && (() => {
                             const daysOld = Math.floor((Date.now() - lastUpdated.getTime()) / 86400000);
                             return (
-                                <div className="flex items-center gap-2 flex-wrap text-[11px] text-slate-400 dark:text-slate-500">
+                                <div className="flex items-center gap-2 flex-wrap text-[13px] text-slate-400 dark:text-slate-500">
                                     <span>Fuente: alfabeta.net · Actualizado: {lastUpdated.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                                     {daysOld > 7 && (
                                         <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-bold">⚠ Hace {daysOld} días sin actualizar</span>
@@ -547,18 +575,8 @@
                             );
                         })()}
 
-                        {/* Tabla comparativa — protagonista */}
+                        {/* Tabla comparativa — protagonista (sin título ni selector arriba) */}
                         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
-                            <div className="px-4 pt-4 pb-2 flex items-center justify-between gap-2">
-                                <h2 className="text-base font-black flex items-center gap-2 text-slate-900 dark:text-white"><Icons.Pill /> Comparativa</h2>
-                                <span className="flex-shrink-0 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-full">{isMonthly ? 'precio / mes' : 'precio / caja'}</span>
-                            </div>
-
-                            <div className="mx-4 mb-2 grid grid-cols-2 gap-1 p-1 bg-slate-100 dark:bg-slate-700/50 rounded-xl">
-                                <button onClick={() => setGrouped(false)} className={`py-1.5 text-xs font-bold rounded-lg transition ${!grouped ? 'bg-white dark:bg-slate-800 shadow text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Por precio</button>
-                                <button onClick={() => setGrouped(true)} className={`py-1.5 text-xs font-bold rounded-lg transition ${grouped ? 'bg-white dark:bg-slate-800 shadow text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Por laboratorio</button>
-                            </div>
-
                             {!grouped ? (
                                 <div>
                                     {comparison.list.map(item => renderRow(item, false))}
@@ -572,7 +590,7 @@
                                                 <div className="bg-white rounded-lg px-2.5 py-1.5 shadow-sm flex items-center">
                                                     <img src={labLogo[g.lab]} alt={g.lab} className="h-5 w-auto object-contain" style={{ maxWidth: '130px' }} />
                                                 </div>
-                                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-300">{g.rows.length + g.pending.length} presentaciones</span>
+                                                <span className="text-[12px] font-bold text-slate-500 dark:text-slate-300">{g.rows.length + g.pending.length} presentaciones</span>
                                             </div>
                                             {g.rows.map(item => renderRow(item, true))}
                                             {g.pending.map((p, i) => renderPendingRow(p, g.lab + '-p' + i))}
@@ -581,7 +599,7 @@
                                 </div>
                             )}
 
-                            <p className="text-[10px] text-slate-400 px-4 py-3 border-t border-slate-100 dark:border-slate-700/50 leading-tight">
+                            <p className="text-[12px] text-slate-400 px-4 py-3 border-t border-slate-100 dark:border-slate-700/50 leading-tight">
                                 Tocá una fila para ver el desglose y compartirlo. {grouped ? 'Agrupado por laboratorio.' : `Ordenado de menor a mayor ${isMonthly ? 'precio por mes' : 'precio por caja'}.`}
                             </p>
                         </div>
@@ -610,7 +628,7 @@
                         <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 shadow-[0_-6px_24px_rgba(0,0,0,0.08)]">
                             <div className="max-w-2xl mx-auto p-3 space-y-2" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
                                 <div className="flex items-center gap-2">
-                                    <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide flex-shrink-0">OOSS / Prepaga</label>
+                                    <label className="text-[13px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide flex-shrink-0">Dto. extra</label>
                                     <select value={ooss} onChange={e => setOoss(Number(e.target.value))} className="py-1.5 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl text-sm font-bold focus:ring-2 ring-blue-500 outline-none cursor-pointer ml-auto">
                                         {Array.from({ length: 21 }, (_, i) => i * 5).map(val => (
                                             <option key={val} value={val}>{val}%</option>
@@ -629,6 +647,16 @@
                                     <button onClick={() => setIsMonthly(!isMonthly)} className={`flex items-center justify-center gap-2 py-2 px-2 rounded-xl text-xs sm:text-sm font-bold border transition ${isMonthly ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
                                         <span className={`w-2 h-2 rounded-full ${isMonthly ? 'bg-white' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
                                         Rendir 2 meses
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <button onClick={() => setRecetario(!recetario)} className={`flex-1 min-w-0 flex items-center justify-center gap-2 py-2 px-2 rounded-xl text-xs sm:text-sm font-bold border transition ${recetario ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
+                                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${recetario ? 'bg-white' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                                        <span className="truncate">Recetario Solidario</span>
+                                    </button>
+                                    <button onClick={() => setGrouped(g => !g)} className="flex-shrink-0 py-2 px-2.5 rounded-xl text-[13px] font-bold border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 active:scale-95 transition" aria-label="Cambiar vista: por precio o por laboratorio">
+                                        {grouped ? 'Por lab.' : 'Por precio'}
                                     </button>
                                 </div>
                             </div>
@@ -681,7 +709,7 @@
                                             </div>
                                             {ooss > 0 && (
                                                 <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                                                    <span className="text-sm">OOSS / Prepaga/Farmacia ({ooss}%)</span>
+                                                    <span className="text-sm">Dto. extra ({ooss}%)</span>
                                                     <span className="font-bold">- {formatCurrency(res.oossAmt)}</span>
                                                 </div>
                                             )}
@@ -696,21 +724,27 @@
                                                     <span>No aplicado</span>
                                                 </div>
                                             )}
+                                            {res.recetarioPerc > 0 && (
+                                                <div className="flex justify-between items-center text-blue-600 dark:text-blue-400">
+                                                    <span className="text-sm">Recetario Solidario (20%)</span>
+                                                    <span className="font-bold">- {formatCurrency(res.recAmt)}</span>
+                                                </div>
+                                            )}
                                         </div>
 
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                             <div className="bg-slate-50 dark:bg-slate-900/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
-                                                <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1 tracking-wider">Total Caja</span>
+                                                <span className="text-[12px] uppercase font-bold text-slate-400 block mb-1 tracking-wider">Total Caja</span>
                                                 <div className="text-3xl font-black text-slate-900 dark:text-white">{formatCurrency(res.final)}</div>
                                             </div>
                                             {isMonthly && current.canSplit && (
                                                 <div className="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-2xl border border-blue-100 dark:border-blue-900/50">
                                                     <div className="flex items-center gap-2 mb-1">
                                                         <span className="text-blue-600"><Icons.Split /></span>
-                                                        <span className="text-[10px] uppercase font-bold text-blue-600 dark:text-blue-400 tracking-wider">Por mes</span>
+                                                        <span className="text-[12px] uppercase font-bold text-blue-600 dark:text-blue-400 tracking-wider">Por mes</span>
                                                     </div>
                                                     <div className="text-3xl font-black text-blue-600 dark:text-blue-400">{formatCurrency(res.perMonth)}</div>
-                                                    <p className="text-[9px] text-blue-500/70 mt-1 font-medium">Rinde 2 meses por lapicera</p>
+                                                    <p className="text-[11px] text-blue-500/70 mt-1 font-medium">Rinde 2 meses por lapicera</p>
                                                 </div>
                                             )}
                                         </div>
@@ -718,12 +752,12 @@
                                         {savings > 0 && (
                                             <div className="mt-3 flex items-center justify-between gap-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-900/40 rounded-2xl p-4">
                                                 <div>
-                                                    <span className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400 tracking-wider block mb-1">Tu ahorro vs PVP</span>
+                                                    <span className="text-[12px] uppercase font-bold text-emerald-600 dark:text-emerald-400 tracking-wider block mb-1">Tu ahorro vs PVP</span>
                                                     <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{formatCurrency(savings)}</div>
                                                 </div>
                                                 <div className="text-right">
                                                     <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400">{savingsPct.toFixed(0)}%</div>
-                                                    <span className="text-[10px] text-emerald-500/80 font-medium">menos que el PVP</span>
+                                                    <span className="text-[12px] text-emerald-500/80 font-medium">menos que el PVP</span>
                                                 </div>
                                             </div>
                                         )}
