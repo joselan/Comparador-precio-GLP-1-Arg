@@ -267,11 +267,8 @@
                 return () => unsubscribe();
             }, []);
 
-            // 2a. Mostrar tutorial en las primeras visitas (solo al montar)
-            useEffect(() => {
-                const v = parseInt(localStorage.getItem('glp1_visits') || '0');
-                if (v < 5) setTut(true);
-            }, []);
+            // El tutorial ya no aparece solo al abrir la app; queda disponible a
+            // mano desde el menú (⋮ → "Cómo funciona").
 
             // 2b. Actualizar clase dark en el DOM al cambiar el modo
             useEffect(() => {
@@ -279,11 +276,7 @@
                 else document.documentElement.classList.remove('dark');
             }, [dark]);
 
-            const closeTut = () => {
-                const v = parseInt(localStorage.getItem('glp1_visits') || '0');
-                localStorage.setItem('glp1_visits', (v + 1).toString());
-                setTut(false);
-            };
+            const closeTut = () => setTut(false);
 
             // Orden de cálculo (según Novo a la Par y la regla original):
             // 1) OOSS/Prepaga (Dto. extra) sobre el PVP → "saldo a abonar en mostrador"
@@ -410,10 +403,7 @@
                                 <span className={`font-black text-sm tabular-nums flex-shrink-0 ${isCheapest ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'}`}>{formatCompact(item.perMonth)}</span>
                             </div>
                             <div className="flex items-center justify-between gap-2 mt-0.5">
-                                <span className="flex items-center gap-1.5 min-w-0">
-                                    {isCheapest && <span className="flex-shrink-0 text-[11px] font-black text-emerald-700 bg-emerald-100 dark:bg-emerald-900/50 dark:text-emerald-300 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Más barato</span>}
-                                    <span className="text-[13px] text-slate-400 truncate">{shortDose(item.dose)}{hideLab ? '' : ' · ' + item.lab}</span>
-                                </span>
+                                <span className="text-[13px] text-slate-400 truncate min-w-0">{shortDose(item.dose)}{hideLab ? '' : ' · ' + item.lab}</span>
                                 {isMonthly && item.canSplit && <span className="text-[12px] text-slate-400 tabular-nums flex-shrink-0">caja {formatCompact(item.final)}</span>}
                             </div>
                             <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700/60 overflow-hidden">
@@ -566,18 +556,6 @@
                 <div className="min-h-screen text-slate-800 dark:text-slate-100 transition-colors">
                     {/* Contenido: la comparativa ocupa toda la parte de arriba */}
                     <main className="max-w-2xl mx-auto px-3 sm:px-4 pt-3 pb-44 space-y-3">
-                        {lastUpdated && (() => {
-                            const daysOld = Math.floor((Date.now() - lastUpdated.getTime()) / 86400000);
-                            return (
-                                <div className="flex items-center gap-2 flex-wrap text-[13px] text-slate-400 dark:text-slate-500">
-                                    <span>Fuente: alfabeta.net · Actualizado: {lastUpdated.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                                    {daysOld > 7 && (
-                                        <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-bold">⚠ Hace {daysOld} días sin actualizar</span>
-                                    )}
-                                </div>
-                            );
-                        })()}
-
                         {/* Tabla comparativa — protagonista (sin título ni selector arriba) */}
                         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
                             {!grouped ? (
@@ -606,6 +584,19 @@
                                 Tocá una fila para ver el desglose y compartirlo. {grouped ? 'Agrupado por laboratorio.' : `Ordenado de menor a mayor ${isMonthly ? 'precio por mes' : 'precio por caja'}.`}
                             </p>
                         </div>
+
+                        {/* Fuente al final, después de todas las etiquetas */}
+                        {lastUpdated && (() => {
+                            const daysOld = Math.floor((Date.now() - lastUpdated.getTime()) / 86400000);
+                            return (
+                                <div className="flex items-center justify-center gap-2 flex-wrap text-[13px] text-slate-400 dark:text-slate-500 text-center">
+                                    <span>Fuente: alfabeta.net · Actualizado: {lastUpdated.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                                    {daysOld > 7 && (
+                                        <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-bold">⚠ Hace {daysOld} días sin actualizar</span>
+                                    )}
+                                </div>
+                            );
+                        })()}
                     </main>
 
                     {/* Fondo para cerrar el menú de opciones al tocar afuera */}
