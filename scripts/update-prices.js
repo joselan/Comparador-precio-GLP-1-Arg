@@ -96,6 +96,38 @@ const MEDICATIONS = {
   },
 };
 
+// --- Metadata canónica de cada producto ---
+// Fuente de verdad de los campos que NO son precios (laboratorio, PSP, etc.).
+// El scraper la aplica en cada corrida para mantener el documento de Firebase
+// prolijo y alineado con la app (ej. Novo pasó de PSP escalonado a 30% fijo).
+const PRODUCT_META = {
+  Mounjaro: { lab: 'Adium',        psp: 'Con Voz',      hasPsp: true,  pspType: 'fixed', pspValue: 0.30, canSplit: true,  color: 'bg-blue-600' },
+  Ozempic:  { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'fixed', pspValue: 0.30, canSplit: true,  color: 'bg-teal-600' },
+  Wegovy:   { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'fixed', pspValue: 0.30, canSplit: true,  color: 'bg-teal-500' },
+  Dutide:   { lab: 'Elea',         psp: '-',            hasPsp: false, canSplit: false, color: 'bg-purple-600' },
+  Obetide:  { lab: 'Elea',         psp: '-',            hasPsp: false, canSplit: false, color: 'bg-purple-500' },
+};
+
+// Aplica PRODUCT_META sobre el db actual (sin tocar las dosis/precios).
+// Devuelve la lista de cambios realizados (vacía si ya estaba prolijo).
+function normalizeMeta(currentDb) {
+  const changes = [];
+  for (const [name, meta] of Object.entries(PRODUCT_META)) {
+    const prod = currentDb[name];
+    if (!prod) continue;
+    for (const [k, v] of Object.entries(meta)) {
+      if (prod[k] !== v) { changes.push(`${name}.${k}: ${JSON.stringify(prod[k])} → ${JSON.stringify(v)}`); prod[k] = v; }
+    }
+    // Productos sin PSP (Elea): no deben conservar pspType/pspValue viejos
+    if (!meta.hasPsp) {
+      for (const k of ['pspType', 'pspValue']) {
+        if (k in prod) { changes.push(`${name}.${k}: eliminado`); delete prod[k]; }
+      }
+    }
+  }
+  return changes;
+}
+
 // --- Helpers ---
 function parsePrice(text) {
   const clean = text.replace(/\s/g, '').replace(/[^0-9.,]/g, '');
@@ -360,6 +392,14 @@ async function main() {
 
   const currentDb = docData.db;
 
+  // Normalizar metadata (laboratorio, PSP, colores) para dejar el documento prolijo
+  const metaChanges = normalizeMeta(currentDb);
+  const metaChanged = metaChanges.length > 0;
+  if (metaChanged) {
+    console.log('\n🔧 Metadata normalizada:');
+    metaChanges.forEach(c => console.log('  - ' + c));
+  }
+
   const puppeteer = require('puppeteer-extra');
   puppeteer.use(require('puppeteer-extra-plugin-stealth')());
   const browser = await puppeteer.launch({
@@ -488,6 +528,7 @@ async function main() {
   if (DRY_RUN) {
     console.log('\n🔍 DRY RUN: no se escribió en Firebase ni se enviaron emails.');
     console.log(`Cambios detectados: ${changedMeds.length > 0 ? changedMeds.join(', ') : 'ninguno'}`);
+    console.log(`Metadata a normalizar: ${metaChanged ? metaChanges.length + ' cambios' : 'ninguno (ya prolijo)'}`);
     if (medsWithPrices === 0) {
       console.error('✗ Ningún producto devolvió precios.');
       process.exitCode = 1;
@@ -495,7 +536,7 @@ async function main() {
     return;
   }
 
-  if (changedMeds.length > 0 || structureChanged) {
+  if (changedMeds.length > 0 || structureChanged || metaChanged) {
     // 1. Update current prices in Firebase
     await docRef.set({
       db: currentDb,
@@ -532,7 +573,7 @@ async function main() {
   await admin.app().delete();
 }
 
-module.exports = { parsePrice, extractMgValues, matchDose, MEDICATIONS };
+module.exports = { parsePrice, extractMgValues, matchDose, MEDICATIONS, PRODUCT_META, normalizeMeta };
 
 if (require.main === module) {
   main().catch(err => {
