@@ -258,8 +258,17 @@
 
             // 1. Cargar datos en Tiempo Real desde Firebase
             useEffect(() => {
+                // Red de seguridad: si Firebase no responde en 6s (conexión inestable),
+                // la app arranca igual con los precios locales en vez de quedar colgada
+                // en "Cargando...". Cuando la conexión llega, onSnapshot actualiza solo.
+                const fallback = setTimeout(() => {
+                    console.warn('Firebase tarda en responder — mostrando precios locales.');
+                    setLoadingDb(false);
+                }, 6000);
+
                 const unsubscribe = firestore.collection('config').doc('prices')
                     .onSnapshot((doc) => {
+                        clearTimeout(fallback);
                         if (doc.exists && doc.data().db) {
                             setDb(mergeDb(defaultDb, doc.data().db));
                             const lu = doc.data().lastUpdated;
@@ -270,13 +279,14 @@
                         }
                         setLoadingDb(false);
                     }, (error) => {
+                        clearTimeout(fallback);
                         console.error("Error obteniendo datos de Firebase:", error);
                         // Si falla Firebase (ej. config vacía), usa locales para que la app no se rompa
-                        setDb(defaultDb); 
+                        setDb(defaultDb);
                         setLoadingDb(false);
                     });
 
-                return () => unsubscribe();
+                return () => { clearTimeout(fallback); unsubscribe(); };
             }, []);
 
             // El tutorial ya no aparece solo al abrir la app; queda disponible a
@@ -402,14 +412,16 @@
                 const k = keyOf(label, dose);
                 const n = { ...s };
                 if (n[k]) delete n[k]; else n[k] = true;
-                if (Object.keys(n).length === 0) setOnlySelected(false);
                 return n;
             });
             const clearSelected = () => { setSelected({}); setOnlySelected(false); };
+            // El modo "Elegidos" sólo rige mientras haya algo elegido (derivado, sin
+            // efectos secundarios dentro de updaters de estado).
+            const filterOn = onlySelected && selectedCount > 0;
 
             // En modo "Elegidos" se muestran sólo las filas elegidas; las barras se
             // re-escalan al máximo del set mostrado para que la comparación sea clara.
-            const displayedList = onlySelected ? comparison.list.filter(it => isSelected(it.label, it.dose)) : comparison.list;
+            const displayedList = filterOn ? comparison.list.filter(it => isSelected(it.label, it.dose)) : comparison.list;
             const maxComparePrice = displayedList.reduce((m, it) => Math.max(m, it.perMonth), 0) || 1;
 
             // Fila de la tabla (compartida entre la vista por precio y por laboratorio)
@@ -590,13 +602,13 @@
                             {!grouped ? (
                                 <div>
                                     {displayedList.map(item => renderRow(item))}
-                                    {!onlySelected && comparison.pending.map((p, i) => renderPendingRow(p, 'p' + i))}
+                                    {!filterOn && comparison.pending.map((p, i) => renderPendingRow(p, 'p' + i))}
                                 </div>
                             ) : (
                                 <div>
                                     {comparison.byLab.map(g => {
-                                        const rows = onlySelected ? g.rows.filter(it => isSelected(it.label, it.dose)) : g.rows;
-                                        const pend = onlySelected ? [] : g.pending;
+                                        const rows = filterOn ? g.rows.filter(it => isSelected(it.label, it.dose)) : g.rows;
+                                        const pend = filterOn ? [] : g.pending;
                                         if (!rows.length && !pend.length) return null;
                                         return (
                                         <div key={g.lab}>
@@ -667,7 +679,7 @@
                                         ))}
                                     </select>
                                     {selectedCount > 0 && (
-                                        <button onClick={() => setOnlySelected(o => !o)} aria-label="Ver sólo los elegidos" className={`flex-shrink-0 py-2 px-2.5 rounded-xl text-[13px] font-bold border transition ${onlySelected ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}>Elegidos · {selectedCount}</button>
+                                        <button onClick={() => setOnlySelected(o => !o)} aria-label="Ver sólo los elegidos" className={`flex-shrink-0 py-2 px-2.5 rounded-xl text-[13px] font-bold border transition ${filterOn ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}>Elegidos · {selectedCount}</button>
                                     )}
                                     <button onClick={() => setGrouped(g => !g)} className="ml-auto flex-shrink-0 py-2 px-2.5 rounded-xl text-[13px] font-bold border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 active:scale-95 transition" aria-label="Cambiar vista: por precio o por laboratorio">
                                         {grouped ? 'Por lab.' : 'Por $'}
