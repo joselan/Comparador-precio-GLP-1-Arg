@@ -720,10 +720,15 @@
                                                     <span>No aplicado</span>
                                                 </div>
                                             )}
-                                            {res.recetarioPerc > 0 && (
+                                            {res.recetarioPerc > 0 ? (
                                                 <div className="flex justify-between items-center text-blue-600 dark:text-blue-400">
                                                     <span className="text-sm">Recetario Solidario (20%)</span>
                                                     <span className="font-bold">- {formatCurrency(res.recAmt)}</span>
+                                                </div>
+                                            ) : (
+                                                <div className="flex justify-between items-center text-slate-300 dark:text-slate-600 line-through text-sm italic">
+                                                    <span>Recetario Solidario</span>
+                                                    <span>No aplicado</span>
                                                 </div>
                                             )}
                                         </div>
