@@ -1,0 +1,11 @@
+# Reglas de caché para Netlify.
+# El index.html es la app entera y cambia seguido: el navegador debe
+# revalidarlo siempre (evita que quede pegada una versión vieja en el celular).
+/
+  Cache-Control: public, max-age=0, must-revalidate
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Las imágenes de producto y logos casi no cambian: se pueden cachear.
+/Imagenes/*
+  Cache-Control: public, max-age=86400
