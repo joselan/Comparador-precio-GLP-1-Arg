@@ -1,0 +1,23 @@
+name: Wayback Probe (alfabeta)
+
+# Sondeo de solo lectura de la Wayback Machine (sin credenciales, no escribe nada).
+# Corre al pushear el script/este workflow, o a mano.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/wayback-probe.js'
+      - '.github/workflows/wayback-probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run Wayback probe
+        run: node wayback-probe.js
+        working-directory: scripts
