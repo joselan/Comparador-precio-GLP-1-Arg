@@ -5,7 +5,7 @@
   "description": "Scrapes alfabeta.net and updates GLP-1 prices in Firebase Firestore",
   "main": "update-prices.js",
   "scripts": {
-    "test": "node test-parse.js && node test-mergedb.js"
+    "test": "node test-parse.js && node test-mergedb.js && node test-normalize.js"
   },
   "dependencies": {
     "cheerio": "^1.0.0",

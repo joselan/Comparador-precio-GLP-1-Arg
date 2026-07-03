@@ -26,3 +26,4 @@ jobs:
         run: |
           node test-parse.js
           node test-mergedb.js
+          node test-normalize.js
