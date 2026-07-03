@@ -1,0 +1,46 @@
+name: Backfill Price History (Wayback)
+
+# Reconstruye historial de precios desde snapshots archivados de alfabeta.net en
+# la Wayback Machine. Sólo se dispara a mano (workflow_dispatch). Por defecto corre
+# en modo sondeo (dry-run): busca y muestra qué encontraría SIN escribir en Firebase.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Sondeo: busca en Wayback y muestra qué encontraría, sin escribir en Firebase'
+        type: boolean
+        default: true
+      weeks:
+        description: 'Cuántas semanas hacia atrás intentar'
+        type: string
+        default: '52'
+      overwrite:
+        description: 'Pisar fechas ya cargadas en el historial (normalmente NO)'
+        type: boolean
+        default: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: scripts
+
+      - name: Run backfill
+        run: node backfill-history.js ${{ (inputs.dry_run == 'true' || inputs.dry_run == true) && '--dry-run' || '' }}
+        working-directory: scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          WEEKS: ${{ inputs.weeks }}
+          BACKFILL_OVERWRITE: ${{ (inputs.overwrite == 'true' || inputs.overwrite == true) && '1' || '0' }}
+          # Google Chrome viene preinstalado en los runners ubuntu-latest
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome-stable

@@ -128,6 +128,23 @@ function normalizeMeta(currentDb) {
   return changes;
 }
 
+// Arma un snapshot COMPLETO de precios para el historial: para cada producto,
+// un mapa dosis→PVP con TODAS las presentaciones que ya tienen precio publicado.
+// Antes el historial guardaba sólo los productos que cambiaban ese día, así que
+// en el gráfico "faltaban productos"; con el snapshot completo cada punto del
+// historial tiene todos los productos.
+function buildSnapshot(currentDb) {
+  const snap = {};
+  for (const [medName, prod] of Object.entries(currentDb || {})) {
+    const doses = {};
+    (prod.doses || []).forEach(d => {
+      if (typeof d.pvp === 'number' && d.pvp > 0) doses[d.name] = d.pvp;
+    });
+    if (Object.keys(doses).length) snap[medName] = doses;
+  }
+  return snap;
+}
+
 // --- Helpers ---
 function parsePrice(text) {
   const clean = text.replace(/\s/g, '').replace(/[^0-9.,]/g, '');
@@ -307,23 +324,17 @@ async function getProductPageHtml(browser, searchTerm) {
   }
 }
 
-async function scrapeMedication(browser, medName, config) {
+// Extrae los precios de una página de producto de alfabeta (misma estructura
+// de tabla que usa el scraper en vivo). Función pura sobre el HTML: la reutiliza
+// tanto el scraper actual como el backfill que lee snapshots viejos de la
+// Wayback Machine. `medName`/`config` identifican el producto y sus dosis.
+function parsePricesFromHtml(html, medName, config, { log = false } = {}) {
   const warnings = [];
-  const html = await getProductPageHtml(browser, config.searchTerm);
-  if (!html) {
-    warnings.push(`${medName}: la búsqueda en alfabeta no devolvió resultados.`);
-    return { prices: {}, warnings };
-  }
-
-  // Control: verificar que aterrizamos en la página del producto correcto
-  if (!html.toLowerCase().includes(config.searchTerm.toLowerCase())) {
-    warnings.push(`${medName}: la página cargada no menciona "${config.searchTerm}" — posible producto equivocado, se descarta.`);
-    return { prices: {}, warnings };
-  }
+  const found = {};
+  if (!html) return { prices: found, warnings };
 
   const cheerio = require('cheerio');
   const $ = cheerio.load(html);
-  const found = {};
 
   $('tr').each((_, el) => {
     const rowText = $(el).text().replace(/\s+/g, ' ').trim();
@@ -338,7 +349,7 @@ async function scrapeMedication(browser, medName, config) {
     const doseText = rowText.replace(/\$.*$/, '').trim();
     const mgValues = extractMgValues(doseText);
     if (mgValues.length === 0) return;
-    console.log(`  "${doseText.substring(0, 70)}" [${mgValues.join(' / ')} mg] → ${formatARS(price)}`);
+    if (log) console.log(`  "${doseText.substring(0, 70)}" [${mgValues.join(' / ')} mg] → ${formatARS(price)}`);
 
     const { dose, ambiguous } = matchDose(config.doses, mgValues);
     if (ambiguous) {
@@ -354,10 +365,29 @@ async function scrapeMedication(browser, medName, config) {
       return;
     }
     found[dose.dbName] = price;
-    console.log(`  ✓ ${dose.dbName}`);
+    if (log) console.log(`  ✓ ${dose.dbName}`);
   });
 
   return { prices: found, warnings };
+}
+
+async function scrapeMedication(browser, medName, config) {
+  const warnings = [];
+  const html = await getProductPageHtml(browser, config.searchTerm);
+  if (!html) {
+    warnings.push(`${medName}: la búsqueda en alfabeta no devolvió resultados.`);
+    return { prices: {}, warnings };
+  }
+
+  // Control: verificar que aterrizamos en la página del producto correcto
+  if (!html.toLowerCase().includes(config.searchTerm.toLowerCase())) {
+    warnings.push(`${medName}: la página cargada no menciona "${config.searchTerm}" — posible producto equivocado, se descarta.`);
+    return { prices: {}, warnings };
+  }
+
+  const { prices, warnings: parseWarnings } = parsePricesFromHtml(html, medName, config, { log: true });
+  warnings.push(...parseWarnings);
+  return { prices, warnings };
 }
 
 async function main() {
@@ -546,14 +576,18 @@ async function main() {
     console.log('\n✅ Precios actualizados en Firebase');
   }
 
-  if (changedMeds.length > 0) {
-    // 2. Save daily history snapshot
+  // 2. Guardar snapshot COMPLETO del día (todos los productos, no sólo los que
+  // cambiaron) para que el gráfico del historial nunca tenga productos faltantes.
+  // Se guarda siempre que al menos un producto haya devuelto precios (así no se
+  // registran puntos "fantasma" si alfabeta estuvo caída en esta corrida).
+  if (medsWithPrices > 0) {
     const today = new Date().toISOString().split('T')[0];
+    const snapshot = buildSnapshot(currentDb);
     await db.collection('priceHistory').doc(today).set(
-      { ...newPricesForChanged, timestamp: admin.firestore.FieldValue.serverTimestamp() },
+      { ...snapshot, timestamp: admin.firestore.FieldValue.serverTimestamp() },
       { merge: true }
     );
-    console.log(`📅 Historial guardado: ${today}`);
+    console.log(`📅 Historial completo guardado: ${today} (${Object.keys(snapshot).length} productos)`);
   }
 
   // 3. Email: con cambios, o solo-advertencias para poder controlarlo
@@ -573,7 +607,7 @@ async function main() {
   await admin.app().delete();
 }
 
-module.exports = { parsePrice, extractMgValues, matchDose, MEDICATIONS, PRODUCT_META, normalizeMeta };
+module.exports = { parsePrice, extractMgValues, matchDose, parsePricesFromHtml, MEDICATIONS, PRODUCT_META, normalizeMeta, buildSnapshot };
 
 if (require.main === module) {
   main().catch(err => {
