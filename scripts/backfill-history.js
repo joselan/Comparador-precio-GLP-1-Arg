@@ -77,31 +77,56 @@ async function discoverProductUrl(browser, searchTerm) {
   }
 }
 
-// --- Wayback CDX: lista de snapshots (uno por día) de una URL en el rango ---
-async function waybackSnapshots(url, fromDate, toDate) {
-  // Consultamos la URL exacta y también el prefijo (por si la URL cambió de query).
-  const base = url.split('#')[0];
-  const q = new URLSearchParams({
-    url: base,
-    from: yyyymmdd(fromDate),
-    to: yyyymmdd(toDate),
-    output: 'json',
-    fl: 'timestamp,original,statuscode',
-    filter: 'statuscode:200',
-    collapse: 'timestamp:8', // 1 por día
-    limit: '1000',
-  });
+// --- Wayback CDX genérico ---
+async function cdxQuery(params) {
+  const q = new URLSearchParams(params);
   const api = `https://web.archive.org/cdx/search/cdx?${q.toString()}`;
   const res = await fetch(api, { headers: { 'User-Agent': UA } });
   if (!res.ok) throw new Error(`CDX ${res.status}`);
   const rows = await res.json();
-  if (!Array.isArray(rows) || rows.length <= 1) return [];
-  // rows[0] es el header
-  return rows.slice(1).map(r => ({
-    ts: r[0],
-    original: r[1],
-    date: new Date(`${r[0].slice(0,4)}-${r[0].slice(4,6)}-${r[0].slice(6,8)}T12:00:00Z`),
-  })).sort((a, b) => a.date - b.date);
+  return (Array.isArray(rows) && rows.length > 1) ? rows.slice(1) : []; // rows[0] = header
+}
+
+const rowsToSnaps = (rows) => rows.map(r => ({
+  ts: r[0], original: r[1],
+  date: new Date(`${r[0].slice(0,4)}-${r[0].slice(4,6)}-${r[0].slice(6,8)}T12:00:00Z`),
+}));
+
+// Cuántas capturas EXISTEN de esta URL en toda la historia de Wayback (diagnóstico).
+async function waybackAllTimeCount(url) {
+  const noProto = url.replace(/^https?:\/\//, '').split('#')[0];
+  const noWww = noProto.replace(/^www\./, '');
+  try {
+    const rows = await cdxQuery({ url: noWww, matchType: 'prefix', output: 'json', fl: 'timestamp', limit: '20000' });
+    return rows.length;
+  } catch (e) { return `err:${e.message}`; }
+}
+
+// --- Snapshots (uno por día) de una URL en el rango, probando variantes ---
+async function waybackSnapshots(url, fromDate, toDate) {
+  const noProto = url.replace(/^https?:\/\//, '').split('#')[0];
+  const noWww = noProto.replace(/^www\./, '');
+  const common = {
+    from: yyyymmdd(fromDate), to: yyyymmdd(toDate), output: 'json',
+    fl: 'timestamp,original,statuscode', filter: 'statuscode:200',
+    collapse: 'timestamp:8', limit: '1000',
+  };
+  // Exacta con/sin www, y prefijo sin www (por si cambió el query/URL).
+  const variants = [
+    { url: noProto, matchType: 'exact' },
+    { url: noWww,   matchType: 'exact' },
+    { url: noWww,   matchType: 'prefix' },
+  ];
+  const seen = new Map();
+  for (const v of variants) {
+    try {
+      const rows = await cdxQuery({ ...common, ...v });
+      console.log(`    cdx ${v.matchType.padEnd(6)} ${v.url} → ${rows.length}`);
+      for (const s of rowsToSnaps(rows)) if (!seen.has(s.ts)) seen.set(s.ts, s);
+    } catch (e) { console.log(`    cdx error (${v.matchType} ${v.url}): ${e.message}`); }
+    await sleep(300);
+  }
+  return [...seen.values()].sort((a, b) => a.date - b.date);
 }
 
 // De todos los snapshots disponibles, elegir ~1 por semana (el más cercano a
@@ -142,6 +167,17 @@ async function main() {
 
   if (!DRY_RUN) initFirebase();
 
+  // Diagnóstico: ¿qué tiene la Wayback Machine de alfabeta.net en general?
+  try {
+    const domRows = await cdxQuery({ url: 'alfabeta.net', matchType: 'domain', output: 'json', fl: 'timestamp,original', collapse: 'urlkey', limit: '10000' });
+    console.log(`🔎 Wayback conoce ${domRows.length} URLs distintas de alfabeta.net (histórico total).`);
+    const precio = domRows.filter(r => /\/precio\//i.test(r[1] || ''));
+    console.log(`   de las cuales ${precio.length} son de /precio/. Muestra:`);
+    precio.slice(0, 12).forEach(r => console.log(`     ${r[0]}  ${r[1]}`));
+    if (!precio.length) domRows.slice(0, 8).forEach(r => console.log(`     ${r[0]}  ${r[1]}`));
+  } catch (e) { console.log('🔎 Diagnóstico de dominio falló:', e.message); }
+  console.log('');
+
   const puppeteer = require('puppeteer-extra');
   puppeteer.use(require('puppeteer-extra-plugin-stealth')());
   const browser = await puppeteer.launch({
@@ -163,6 +199,9 @@ async function main() {
         stat.url = url;
         if (!url) { console.log('  ⚠ no se pudo descubrir la URL — se omite'); stats.push(stat); continue; }
         console.log(`  URL: ${url}`);
+
+        const allTime = await waybackAllTimeCount(url);
+        console.log(`  Wayback histórico total de esta página: ${allTime} capturas`);
 
         const snaps = await waybackSnapshots(url, fromDate, toDate);
         stat.snapshots = snaps.length;
