@@ -103,7 +103,8 @@
             Chevron: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>,
             Pen: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>,
             Droplet: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.7l5.66 5.66a8 8 0 1 1-11.32 0z"/></svg>,
-            Capsule: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="8" width="20" height="8" rx="4"/><line x1="12" y1="8" x2="12" y2="16"/></svg>
+            Capsule: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="8" width="20" height="8" rx="4"/><line x1="12" y1="8" x2="12" y2="16"/></svg>,
+            Dots: () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg>
         };
 
         const defaultDb = {
@@ -135,6 +136,36 @@
         const labGlyph = { 'Adium': Icons.Pen, 'Novo Nordisk': Icons.Droplet, 'Elea': Icons.Capsule };
         const glyphFor = (name) => productGlyph[name] || Icons.Pill;
         const labGlyphFor = (lab) => labGlyph[lab] || Icons.Pill;
+
+        // Logos de laboratorio (carpeta Imagenes del repo)
+        const labLogo = {
+            'Adium': 'Imagenes/Logo-adium-h-400.png',
+            'Novo Nordisk': 'Imagenes/novo-nordisk-logo-1.svg',
+            'Elea': 'Imagenes/images.png',
+        };
+        // Imagen de producto por dosis (si existe) o representativa del producto
+        const IMG = 'Imagenes/';
+        const doseImg = {
+            'Mounjaro|2.5mg (KwikPen x1)': IMG + 'farmaciasjulios_panama-mounjaro-kwikpen-2-5mg-0-6ml-solucion-inyectable-de-tirzepatida.jpg',
+            'Mounjaro|5mg (KwikPen x1)':   IMG + 'farmaciasjulios_panama-mounjaro-kwikpen-5mg-0-6ml-solucion-inyectable-de-tirzepatida.jpg',
+            'Mounjaro|7.5mg (KwikPen x1)': IMG + 'farmaciasjulios_panama-mounjaro-kwikpen-7-5mg-0-6ml-solucion-inyectable-de-tirzepatida.jpg',
+            'Mounjaro|10mg (KwikPen x1)':  IMG + 'farmaciasjulios_panama-mounjaro-kwikpen-10-mg-0-6ml-solucion-inyectable-de-tirzepatida.jpg',
+            'Ozempic|0.25mg / 0.5mg (1.5ml + 6 ag)': IMG + 'imagen2_ozempic_inyectable_semanal_x_0_25mg_imagen2.jpg',
+            'Ozempic|1mg (3ml + 4 ag)':    IMG + 'imagen2_ozempic_inyectable_semanal_x_1mg_imagen2.jpg',
+            'Wegovy|0.25mg (1.5ml + 4 ag)': IMG + 'WEGOVY_0.25mg-1000x1000.png',
+            'Wegovy|0.5mg (1.5ml + 4 ag)':  IMG + 'WEGOVY_0.5mg-1000x1000.webp',
+            'Wegovy|1mg (3ml + 4 ag)':      IMG + 'WEGOVY_1mg-1000x1000.webp',
+            'Wegovy|1.7mg (3ml + 4 ag)':    IMG + 'WEGOVY_1.7mg-1000x1000.webp',
+            'Wegovy|2.4mg (3ml + 4 ag)':    IMG + 'WEGOVY_2.4mg-1000x1000.png',
+        };
+        const productImg = {
+            Mounjaro: IMG + 'farmaciasjulios_panama-mounjaro-kwikpen-5mg-0-6ml-solucion-inyectable-de-tirzepatida.jpg',
+            Ozempic:  IMG + 'imagen2_ozempic_inyectable_semanal_x_0_25mg_imagen2.jpg',
+            Wegovy:   IMG + 'WEGOVY_0.25mg-1000x1000.png',
+            Dutide:   IMG + 'imagen1_dutide_inyectable_semanal_x_0_5mg_imagen1.jpg',
+            Obetide:  IMG + 'Obetide-025mg_120x75x90-1.png',
+        };
+        const imgFor = (label, dose) => doseImg[label + '|' + dose] || productImg[label] || null;
 
         // Combina la BD local (estructura de referencia: productos y dosis nuevos
         // definidos en el código) con la de Firebase (precios vigentes). Los precios
@@ -172,6 +203,7 @@
             const [copied, setCopied] = useState(false);
             const [detailOpen, setDetailOpen] = useState(false);
             const [grouped, setGrouped] = useState(false);
+            const [optionsOpen, setOptionsOpen] = useState(false);
 
             // Estados para Autenticación de Administrador
             const [clicks, setClicks] = useState(0);
@@ -720,85 +752,27 @@
                         </div>
                     )}
 
-                    <header className="bg-white dark:bg-slate-800 border-b dark:border-slate-700 px-4 py-3 sticky top-0 z-40 shadow-sm">
-                        <div className="max-w-2xl mx-auto flex items-center justify-between">
-                            <div className="flex items-center gap-2 cursor-pointer no-select" onClick={() => setClicks(c => c + 1)} title="Clic 5 veces para acceder al Administrador">
-                                <span className="text-blue-500 flex-shrink-0"><Icons.Logo /></span>
-                                <h1 className="text-sm sm:text-xl font-bold tracking-tight leading-tight">
-                                    <span className="sm:hidden">Comparador GLP-1/GIP</span>
-                                    <span className="hidden sm:inline">Comparador precios GLP-1/GIP Argentina</span>
-                                </h1>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button onClick={() => setTut(true)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition"><Icons.Help /></button>
-                                <button onClick={() => setDark(!dark)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition">
-                                    {dark ? <Icons.Sun /> : <Icons.Moon />}
-                                </button>
-                            </div>
-                        </div>
-                    </header>
-
-                    {lastUpdated && (() => {
-                        const daysOld = Math.floor((Date.now() - lastUpdated.getTime()) / 86400000);
-                        return (
-                            <div className="max-w-2xl mx-auto px-3 sm:px-4 pt-3 flex items-center gap-2 flex-wrap text-xs text-slate-400 dark:text-slate-500">
-                                <span>Fuente: alfabeta.net · Actualizado: {lastUpdated.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                                {daysOld > 7 && (
-                                    <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-bold">
-                                        ⚠ Hace {daysOld} días sin actualizar — los precios pueden estar desactualizados
-                                    </span>
-                                )}
-                            </div>
-                        );
-                    })()}
-
-                    <main className="max-w-2xl mx-auto px-3 sm:px-4 py-3 space-y-3">
-                        {/* Controles globales: afectan a toda la tabla comparativa */}
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-3 space-y-2">
-                            <div className="flex items-center gap-2">
-                                <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide flex-shrink-0">OOSS / Prepaga</label>
-                                <select
-                                    value={ooss}
-                                    onChange={e => setOoss(Number(e.target.value))}
-                                    className="py-1.5 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl text-sm font-bold focus:ring-2 ring-blue-500 outline-none cursor-pointer ml-auto"
-                                >
-                                    {Array.from({ length: 21 }, (_, i) => i * 5).map(val => (
-                                        <option key={val} value={val}>{val}%</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2">
-                                <button onClick={() => setUsePsp(!usePsp)} className={`flex items-center justify-center gap-2 py-2 px-2 rounded-xl text-xs sm:text-sm font-bold border transition ${usePsp ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
-                                    <span className={`w-2 h-2 rounded-full ${usePsp ? 'bg-white' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
-                                    Descuento PSP
-                                </button>
-                                <button onClick={() => setIsMonthly(!isMonthly)} className={`flex items-center justify-center gap-2 py-2 px-2 rounded-xl text-xs sm:text-sm font-bold border transition ${isMonthly ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
-                                    <span className={`w-2 h-2 rounded-full ${isMonthly ? 'bg-white' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
-                                    Rendir 2 meses
-                                </button>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex-shrink-0">Meses</span>
-                                <div className="grid grid-cols-3 gap-1.5 flex-1">
-                                    {[{l:'1-2',v:1}, {l:'3-4',v:3}, {l:'5+',v:5}].map(b => (
-                                        <button key={b.v} onClick={() => setMonth(b.v)} className={`py-1.5 text-xs font-bold rounded-lg border transition ${month === b.v ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 border-slate-800 dark:border-white' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'}`}>
-                                            {b.l}
-                                        </button>
-                                    ))}
+                    {/* Contenido: la comparativa ocupa toda la parte de arriba */}
+                    <main className="max-w-2xl mx-auto px-3 sm:px-4 pt-3 pb-44 space-y-3">
+                        {lastUpdated && (() => {
+                            const daysOld = Math.floor((Date.now() - lastUpdated.getTime()) / 86400000);
+                            return (
+                                <div className="flex items-center gap-2 flex-wrap text-[11px] text-slate-400 dark:text-slate-500">
+                                    <span>Fuente: alfabeta.net · Actualizado: {lastUpdated.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                                    {daysOld > 7 && (
+                                        <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-bold">⚠ Hace {daysOld} días sin actualizar</span>
+                                    )}
                                 </div>
-                            </div>
-                        </div>
+                            );
+                        })()}
 
-                        {/* Tabla comparativa de todos los productos — protagonista */}
+                        {/* Tabla comparativa — protagonista */}
                         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
                             <div className="px-4 pt-4 pb-2 flex items-center justify-between gap-2">
                                 <h2 className="text-base font-black flex items-center gap-2 text-slate-900 dark:text-white"><Icons.Pill /> Comparativa</h2>
                                 <span className="flex-shrink-0 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-full">{isMonthly ? 'precio / mes' : 'precio / caja'}</span>
                             </div>
 
-                            {/* Toggle de vista: por precio (ranking) o agrupada por laboratorio */}
                             <div className="mx-4 mb-2 grid grid-cols-2 gap-1 p-1 bg-slate-100 dark:bg-slate-700/50 rounded-xl">
                                 <button onClick={() => setGrouped(false)} className={`py-1.5 text-xs font-bold rounded-lg transition ${!grouped ? 'bg-white dark:bg-slate-800 shadow text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Por precio</button>
                                 <button onClick={() => setGrouped(true)} className={`py-1.5 text-xs font-bold rounded-lg transition ${grouped ? 'bg-white dark:bg-slate-800 shadow text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Por laboratorio</button>
@@ -811,22 +785,18 @@
                                 </div>
                             ) : (
                                 <div>
-                                    {comparison.byLab.map(g => {
-                                        const LabGlyph = labGlyphFor(g.lab);
-                                        return (
-                                            <div key={g.lab}>
-                                                <div className={`px-4 py-2 flex items-center gap-2.5 border-t border-slate-100 dark:border-slate-700/50 ${styleFor(g.color).tint}`}>
-                                                    <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-white flex-shrink-0 shadow-sm ${styleFor(g.color).chip}`}><LabGlyph /></span>
-                                                    <div className="min-w-0">
-                                                        <div className="font-black text-sm text-slate-900 dark:text-white leading-tight">{g.lab}</div>
-                                                        <div className="text-[10px] text-slate-400 leading-tight">{g.rows.length + g.pending.length} presentaciones</div>
-                                                    </div>
+                                    {comparison.byLab.map(g => (
+                                        <div key={g.lab}>
+                                            <div className={`px-4 py-2.5 flex items-center justify-between gap-2.5 border-t border-slate-100 dark:border-slate-700/50 ${styleFor(g.color).tint}`}>
+                                                <div className="bg-white rounded-lg px-2.5 py-1.5 shadow-sm flex items-center">
+                                                    <img src={labLogo[g.lab]} alt={g.lab} className="h-5 w-auto object-contain" style={{ maxWidth: '130px' }} />
                                                 </div>
-                                                {g.rows.map(item => renderRow(item, true))}
-                                                {g.pending.map((p, i) => renderPendingRow(p, g.lab + '-p' + i))}
+                                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-300">{g.rows.length + g.pending.length} presentaciones</span>
                                             </div>
-                                        );
-                                    })}
+                                            {g.rows.map(item => renderRow(item, true))}
+                                            {g.pending.map((p, i) => renderPendingRow(p, g.lab + '-p' + i))}
+                                        </div>
+                                    ))}
                                 </div>
                             )}
 
@@ -836,6 +806,67 @@
                         </div>
                     </main>
 
+                    {/* Fondo para cerrar el menú de opciones al tocar afuera */}
+                    {optionsOpen && <div className="fixed inset-0 z-30" onClick={() => setOptionsOpen(false)}></div>}
+
+                    {/* Barra inferior fija: todos los controles al alcance del pulgar */}
+                    <div className="fixed inset-x-0 bottom-0 z-40">
+                        <div className="max-w-2xl mx-auto px-3">
+                            {optionsOpen && (
+                                <div className="mb-2 ml-auto w-64 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-2">
+                                    <div onClick={() => setClicks(c => c + 1)} className="flex items-center gap-2 px-3 py-2 no-select cursor-pointer text-slate-400 dark:text-slate-500" title="Clic 5 veces para acceder al Administrador">
+                                        <span className="text-blue-500"><Icons.Logo /></span>
+                                        <span className="text-xs font-bold leading-tight">Comparador GLP-1/GIP Argentina</span>
+                                    </div>
+                                    <div className="border-t border-slate-100 dark:border-slate-700 my-1"></div>
+                                    <button onClick={() => { setTut(true); setOptionsOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">
+                                        <Icons.Help /> Cómo funciona
+                                    </button>
+                                    <button onClick={() => setDark(!dark)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">
+                                        {dark ? <Icons.Sun /> : <Icons.Moon />} Tema {dark ? 'claro' : 'oscuro'}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 shadow-[0_-6px_24px_rgba(0,0,0,0.08)]">
+                            <div className="max-w-2xl mx-auto p-3 space-y-2" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
+                                <div className="flex items-center gap-2">
+                                    <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide flex-shrink-0">OOSS / Prepaga</label>
+                                    <select value={ooss} onChange={e => setOoss(Number(e.target.value))} className="py-1.5 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl text-sm font-bold focus:ring-2 ring-blue-500 outline-none cursor-pointer ml-auto">
+                                        {Array.from({ length: 21 }, (_, i) => i * 5).map(val => (
+                                            <option key={val} value={val}>{val}%</option>
+                                        ))}
+                                    </select>
+                                    <button onClick={() => setOptionsOpen(o => !o)} className={`w-9 h-9 flex items-center justify-center rounded-xl border flex-shrink-0 transition ${optionsOpen ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 border-transparent' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300'}`} aria-label="Opciones">
+                                        <Icons.Dots />
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button onClick={() => setUsePsp(!usePsp)} className={`flex items-center justify-center gap-2 py-2 px-2 rounded-xl text-xs sm:text-sm font-bold border transition ${usePsp ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
+                                        <span className={`w-2 h-2 rounded-full ${usePsp ? 'bg-white' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                                        Descuento PSP
+                                    </button>
+                                    <button onClick={() => setIsMonthly(!isMonthly)} className={`flex items-center justify-center gap-2 py-2 px-2 rounded-xl text-xs sm:text-sm font-bold border transition ${isMonthly ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
+                                        <span className={`w-2 h-2 rounded-full ${isMonthly ? 'bg-white' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                                        Rendir 2 meses
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex-shrink-0">Meses</span>
+                                    <div className="grid grid-cols-3 gap-1.5 flex-1">
+                                        {[{l:'1-2',v:1}, {l:'3-4',v:3}, {l:'5+',v:5}].map(b => (
+                                            <button key={b.v} onClick={() => setMonth(b.v)} className={`py-1.5 text-xs font-bold rounded-lg border transition ${month === b.v ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 border-slate-800 dark:border-white' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'}`}>
+                                                {b.l}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Ficha de detalle: bottom sheet en mobile, modal centrado en desktop */}
                     {detailOpen && (
                         <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center">
@@ -843,10 +874,18 @@
                             <div className="relative bg-white dark:bg-slate-800 w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
                                 <div className={`h-2 ${current.color} w-full`}></div>
                                 <div className="p-5 sm:p-6">
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div className="min-w-0">
-                                            <h2 className="text-2xl font-black text-slate-900 dark:text-white truncate">{med}</h2>
-                                            <p className="text-slate-400 text-sm">{activeDose.name} · {current.lab}</p>
+                                    <div className="flex justify-between items-start mb-4 gap-3">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="w-20 h-20 bg-white rounded-2xl border border-slate-200 dark:border-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden p-1">
+                                                {imgFor(med, activeDose.name)
+                                                    ? <img src={imgFor(med, activeDose.name)} alt={med} className="max-w-full max-h-full object-contain" />
+                                                    : <span className={`w-10 h-10 rounded-lg flex items-center justify-center text-white ${styleFor(current.color).chip}`}>{React.createElement(glyphFor(med))}</span>}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <h2 className="text-2xl font-black text-slate-900 dark:text-white truncate">{med}</h2>
+                                                <p className="text-slate-500 dark:text-slate-300 text-sm font-medium">{activeDose.name}</p>
+                                                <p className="text-slate-400 text-xs">{current.lab}</p>
+                                            </div>
                                         </div>
                                         <button onClick={() => setDetailOpen(false)} className="p-2 -m-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex-shrink-0"><Icons.Close /></button>
                                     </div>
