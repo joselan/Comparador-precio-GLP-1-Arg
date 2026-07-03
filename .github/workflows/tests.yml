@@ -27,3 +27,4 @@ jobs:
           node test-parse.js
           node test-mergedb.js
           node test-normalize.js
+          node test-snapshot.js
