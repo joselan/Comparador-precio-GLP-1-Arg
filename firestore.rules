@@ -2,38 +2,26 @@ rules_version = '2';
 
 // Reglas de seguridad de Firestore para el Comparador GLP-1.
 //
-// Contexto: la API key de Firebase es pública (viaja en index.html, como en
-// toda app web de Firebase), así que estas reglas son la ÚNICA barrera real
-// contra escrituras no autorizadas. Sin ellas, cualquiera puede sobrescribir
-// los precios que ven los pacientes.
-//
-// Modelo:
-//   - Lectura pública: la web muestra precios e historial sin login.
-//   - Escritura: SOLO la cuenta de Google del administrador.
-//   - El scraper usa el Admin SDK (service account), que IGNORA estas reglas
-//     por diseño; por eso la actualización automática sigue funcionando.
+// La app ya no tiene panel de administrador ni login: los precios se gestionan
+// únicamente desde el scraper (GitHub Actions), que usa el Admin SDK con service
+// account y por diseño IGNORA estas reglas. Por eso desde el cliente NO se
+// permite ninguna escritura; solo lectura pública de precios e historial.
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function isAdmin() {
-      return request.auth != null
-          && request.auth.token.email == 'joselanglois@gmail.com'
-          && request.auth.token.email_verified == true;
-    }
 
     // Precios vigentes (config/prices) — leídos por toda la web.
     match /config/{document} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if false;
     }
 
-    // Historial de precios — mostrado en el panel y en el gráfico.
+    // Historial de precios — mostrado en el gráfico del menú.
     match /priceHistory/{document} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if false;
     }
 
-    // Todo lo demás queda cerrado (deny por defecto, explícito para dejarlo claro).
+    // Todo lo demás queda cerrado.
     match /{document=**} {
       allow read, write: if false;
     }
