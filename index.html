@@ -109,8 +109,8 @@
 
         const defaultDb = {
             Mounjaro: { lab: 'Adium', psp: 'Con Voz', hasPsp: true, pspType: 'fixed', pspValue: 0.30, canSplit: true, color: 'bg-blue-600', doses: [ { name: '2.5mg (KwikPen x1)', pvp: 612576.68 }, { name: '5mg (KwikPen x1)', pvp: 829980.63 }, { name: '7.5mg (KwikPen x1)', pvp: null }, { name: '10mg (KwikPen x1)', pvp: null } ] },
-            Ozempic: { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'progressive', canSplit: true, color: 'bg-teal-600', doses: [ { name: '0.25mg / 0.5mg (1.5ml + 6 ag)', pvp: 322213.46 }, { name: '1mg (3ml + 4 ag)', pvp: 386656.15 } ] },
-            Wegovy: { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'progressive', canSplit: true, color: 'bg-teal-500', doses: [ { name: '0.25mg (1.5ml + 4 ag)', pvp: 322213.46 }, { name: '0.5mg (1.5ml + 4 ag)', pvp: 322213.46 }, { name: '1mg (3ml + 4 ag)', pvp: 386656.15 }, { name: '1.7mg (3ml + 4 ag)', pvp: 541318.63 }, { name: '2.4mg (3ml + 4 ag)', pvp: 757846.07 } ] },
+            Ozempic: { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'fixed', pspValue: 0.30, canSplit: true, color: 'bg-teal-600', doses: [ { name: '0.25mg / 0.5mg (1.5ml + 6 ag)', pvp: 322213.46 }, { name: '1mg (3ml + 4 ag)', pvp: 386656.15 } ] },
+            Wegovy: { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'fixed', pspValue: 0.30, canSplit: true, color: 'bg-teal-500', doses: [ { name: '0.25mg (1.5ml + 4 ag)', pvp: 322213.46 }, { name: '0.5mg (1.5ml + 4 ag)', pvp: 322213.46 }, { name: '1mg (3ml + 4 ag)', pvp: 386656.15 }, { name: '1.7mg (3ml + 4 ag)', pvp: 541318.63 }, { name: '2.4mg (3ml + 4 ag)', pvp: 757846.07 } ] },
             Dutide: { lab: 'Elea', psp: '-', hasPsp: false, canSplit: false, color: 'bg-purple-600', doses: [ { name: '0.25mg (x4)', pvp: 114334.23 }, { name: '0.5mg (x4)', pvp: 131478.58 }, { name: '1mg (x4)', pvp: 148738.76 } ] },
             Obetide: { lab: 'Elea', psp: '-', hasPsp: false, canSplit: false, color: 'bg-purple-500', doses: [ { name: '0.25mg (x4)', pvp: 114334.23 }, { name: '0.5mg (x4)', pvp: 131478.58 }, { name: '1mg (x4)', pvp: 148738.76 }, { name: '1.7mg (x4)', pvp: 196450.34 }, { name: '2.4mg (x4)', pvp: 256527.14 } ] }
         };
@@ -167,6 +167,27 @@
         };
         const imgFor = (label, dose) => doseImg[label + '|' + dose] || productImg[label] || null;
 
+        // --- Descuentos PSP (Programas de Soporte a Pacientes) ---
+        // Novo a la Par: 30% fijo sobre el saldo tras OOSS para Ozempic y Wegovy.
+        //   Excepción: Wegovy 0.25 mg = 60% del 06/05/2026 al 31/07/2026 inclusive,
+        //   luego vuelve al 30% general (fuente: Términos y Condiciones, abril 2026).
+        // Adium (Con Voz): 30% fijo. Elea: sin PSP.
+        const promoWegovy025Active = () => {
+            const now = new Date();
+            const start = new Date('2026-05-06T00:00:00-03:00');
+            const end = new Date('2026-08-01T00:00:00-03:00'); // 31/07/2026 inclusive
+            return now >= start && now < end;
+        };
+        const pspPercFor = (productName, item, doseName, activePsp) => {
+            if (!activePsp || !item || !item.hasPsp) return 0;
+            // Promo Wegovy 0.25 mg
+            if (productName === 'Wegovy' && shortDose(doseName) === '0.25mg' && promoWegovy025Active()) return 0.60;
+            // PSP fijo declarado (ej. Con Voz de Adium)
+            if (item.pspType === 'fixed' && typeof item.pspValue === 'number') return item.pspValue;
+            // Novo a la Par (y cualquier otro con PSP): 30% fijo
+            return 0.30;
+        };
+
         // Combina la BD local (estructura de referencia: productos y dosis nuevos
         // definidos en el código) con la de Firebase (precios vigentes). Los precios
         // de Firebase mandan; las dosis que aún no existen en Firebase se agregan
@@ -195,7 +216,6 @@
             const [med, setMed] = useState('Mounjaro');
             const [doseIdx, setDoseIdx] = useState(0);
             const [ooss, setOoss] = useState(0);
-            const [month, setMonth] = useState(1);
             const [usePsp, setUsePsp] = useState(true);
             const [isMonthly, setIsMonthly] = useState(false);
             const [dark, setDark] = useState(false);
@@ -306,32 +326,23 @@
                 setTut(false);
             };
 
-            const calc = (pvp, item, curMonth, oossPerc, activePsp, monthly) => {
-                let pspPerc = 0;
-                if (activePsp && item.hasPsp) {
-                    if (item.pspType === 'fixed') pspPerc = item.pspValue;
-                    else {
-                        if (curMonth <= 2) pspPerc = 0.25;
-                        else if (curMonth <= 4) pspPerc = 0.30;
-                        else pspPerc = 0.35;
-                    }
-                }
-
-                // PSP se aplica sobre el PVP completo
-                const pspAmt = pvp * pspPerc;
-                const saldoPostPsp = pvp - pspAmt;
-
-                // OOSS/Farmacia se aplica sobre el saldo después del PSP
-                const oossAmt = saldoPostPsp * (oossPerc / 100);
-                const final = saldoPostPsp - oossAmt;
+            // Orden de cálculo (según Novo a la Par y la regla original):
+            // 1) OOSS/Prepaga sobre el PVP → "saldo a abonar en mostrador"
+            // 2) PSP (30%/60%) sobre ESE saldo
+            // El total final es el mismo sin importar el orden (descuentos
+            // multiplicativos), pero así el desglose refleja lo que hace el laboratorio.
+            const calc = (pvp, item, pspPerc, oossPerc, monthly) => {
+                const oossAmt = pvp * (oossPerc / 100);
+                const saldoMostrador = pvp - oossAmt;         // precio a abonar en mostrador
+                const pspAmt = saldoMostrador * pspPerc;      // PSP sobre el saldo post-OOSS
+                const final = saldoMostrador - pspAmt;
                 const perMonth = (monthly && item.canSplit) ? final / 2 : final;
-
                 return { pvp, oossAmt, pspAmt, final, perMonth, pspPerc };
             };
 
             const current = db[med] || defaultDb['Mounjaro'];
             const activeDose = current.doses[doseIdx] || current.doses[0];
-            const res = calc(activeDose.pvp, current, month, ooss, usePsp, isMonthly);
+            const res = calc(activeDose.pvp, current, pspPercFor(med, current, activeDose.name, usePsp), ooss, isMonthly);
 
             // Ahorro respecto del PVP (lo que descuentan PSP + OOSS sobre la caja)
             const savings = res.pvp ? res.pvp - res.final : 0;
@@ -343,8 +354,8 @@
                 lines.push('💊 Comparador de precios GLP-1/GIP Argentina');
                 lines.push(`${med} ${activeDose.name} — ${current.lab}`);
                 lines.push(`PVP: ${formatCurrency(res.pvp)}`);
-                if (usePsp && current.hasPsp) lines.push(`Descuento PSP (${current.psp} ${(res.pspPerc * 100).toFixed(0)}%): -${formatCurrency(res.pspAmt)}`);
                 if (ooss > 0) lines.push(`OOSS/Prepaga/Farmacia (${ooss}%): -${formatCurrency(res.oossAmt)}`);
+                if (usePsp && current.hasPsp) lines.push(`Descuento PSP (${current.psp} ${(res.pspPerc * 100).toFixed(0)}%): -${formatCurrency(res.pspAmt)}`);
                 lines.push(`Precio final de la caja: ${formatCurrency(res.final)}`);
                 if (isMonthly && current.canSplit) lines.push(`Costo por mes (rinde 2 meses): ${formatCurrency(res.perMonth)}`);
                 if (savings > 0) lines.push(`Ahorro vs PVP: ${formatCurrency(savings)} (${savingsPct.toFixed(0)}%)`);
@@ -392,7 +403,7 @@
                     db[k].doses.forEach((d, di) => {
                         // Dosis sin PVP publicado aún: no entran al ranking
                         if (!d.pvp) { pending.push({ label: k, dose: d.name, dIdx: di, color: db[k].color, lab: db[k].lab }); return; }
-                        const r = calc(d.pvp, db[k], month, ooss, usePsp, isMonthly);
+                        const r = calc(d.pvp, db[k], pspPercFor(k, db[k], d.name, usePsp), ooss, isMonthly);
                         list.push({ label: k, dose: d.name, dIdx: di, ...r, color: db[k].color, canSplit: db[k].canSplit, lab: db[k].lab });
                     });
                 });
@@ -413,7 +424,7 @@
                     .sort((a, b) => a.min - b.min);
 
                 return { list, pending, byLab };
-            }, [db, med, doseIdx, ooss, month, usePsp, isMonthly]);
+            }, [db, med, doseIdx, ooss, usePsp, isMonthly]);
 
             // Precio máximo del ranking, para escalar las barras visuales de la tabla
             const maxComparePrice = comparison.list.reduce((m, it) => Math.max(m, it.perMonth), 0) || 1;
@@ -852,17 +863,6 @@
                                         Rendir 2 meses
                                     </button>
                                 </div>
-
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex-shrink-0">Meses</span>
-                                    <div className="grid grid-cols-3 gap-1.5 flex-1">
-                                        {[{l:'1-2',v:1}, {l:'3-4',v:3}, {l:'5+',v:5}].map(b => (
-                                            <button key={b.v} onClick={() => setMonth(b.v)} className={`py-1.5 text-xs font-bold rounded-lg border transition ${month === b.v ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 border-slate-800 dark:border-white' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'}`}>
-                                                {b.l}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -911,21 +911,21 @@
                                                 <span className="text-sm">Precio Venta Público (PVP)</span>
                                                 <span className="font-bold text-slate-700 dark:text-slate-200">{formatCurrency(res.pvp)}</span>
                                             </div>
+                                            {ooss > 0 && (
+                                                <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                                                    <span className="text-sm">OOSS / Prepaga/Farmacia ({ooss}%)</span>
+                                                    <span className="font-bold">- {formatCurrency(res.oossAmt)}</span>
+                                                </div>
+                                            )}
                                             {usePsp && current.hasPsp ? (
                                                 <div className="flex justify-between items-center text-blue-600 dark:text-blue-400">
-                                                    <span className="text-sm">Descuento PSP ({current.psp} - {(res.pspPerc*100).toFixed(0)}%)</span>
+                                                    <span className="text-sm">Descuento PSP ({current.psp} - {(res.pspPerc*100).toFixed(0)}%){ooss > 0 ? ' sobre saldo' : ''}</span>
                                                     <span className="font-bold">- {formatCurrency(res.pspAmt)}</span>
                                                 </div>
                                             ) : (
                                                 <div className="flex justify-between items-center text-slate-300 dark:text-slate-600 line-through text-sm italic">
                                                     <span>Descuento PSP</span>
                                                     <span>No aplicado</span>
-                                                </div>
-                                            )}
-                                            {ooss > 0 && (
-                                                <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                                                    <span className="text-sm">OOSS / Prepaga/Farmacia ({ooss}%)</span>
-                                                    <span className="font-bold">- {formatCurrency(res.oossAmt)}</span>
                                                 </div>
                                             )}
                                         </div>
