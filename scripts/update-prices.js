@@ -39,7 +39,14 @@ function initFirebase() {
 const FIREBASE_PROJECT_ID = 'comparador-precios-glp-1-arg';
 const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
+// Cuenta que ENVÍA los emails (la del App Password de Gmail).
 const ADMIN_EMAIL = 'joselanglois@gmail.com';
+// Destinatarios de las alertas. Se puede sobrescribir con ALERT_EMAILS (lista
+// separada por comas); por defecto van al Gmail del admin y a la casilla de Adium.
+const ALERT_RECIPIENTS = (process.env.ALERT_EMAILS || 'joselanglois@gmail.com, jlanglois@adium.com.ar')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 // Umbrales de control de cambios de precio (fracción sobre el precio anterior)
 const WARN_CHANGE = parseFloat(process.env.WARN_CHANGE || '0.40');
@@ -398,11 +405,11 @@ async function sendEmail(changedMeds, newPrices, warnings) {
   try {
     await transporter.sendMail({
       from: `"GLP-1 Comparador" <${ADMIN_EMAIL}>`,
-      to: ADMIN_EMAIL,
+      to: ALERT_RECIPIENTS.join(', '),
       subject,
       html: buildEmailHtml(changedMeds, newPrices, warnings),
     });
-    console.log('  ✉ Email enviado a', ADMIN_EMAIL);
+    console.log('  ✉ Email enviado a', ALERT_RECIPIENTS.join(', '));
   } catch (err) {
     console.error('  ✗ Error enviando email:', err.message);
   }
