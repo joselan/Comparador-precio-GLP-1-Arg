@@ -234,6 +234,22 @@
             return merged;
         };
 
+        // Hace que el gesto/botón "atrás" del teléfono cierre un overlay (comparación,
+        // ficha) en vez de salir de la app. Al abrir empuja una entrada al historial;
+        // "atrás" la saca y dispara onClose. Si se cierra por la UI, se limpia la entrada.
+        function useBackToClose(open, onClose) {
+            useEffect(() => {
+                if (!open) return;
+                window.history.pushState({ overlay: true }, '');
+                const onPop = () => onClose();
+                window.addEventListener('popstate', onPop);
+                return () => {
+                    window.removeEventListener('popstate', onPop);
+                    if (window.history.state && window.history.state.overlay) window.history.back();
+                };
+            }, [open]);
+        }
+
         function App() {
             // Estado Principal de la BD
             const [db, setDb] = useState(defaultDb);
@@ -299,6 +315,10 @@
                 if (dark) document.documentElement.classList.add('dark');
                 else document.documentElement.classList.remove('dark');
             }, [dark]);
+
+            // "Atrás" (swipe/botón) cierra la comparación y la ficha, y vuelve a la lista.
+            useBackToClose(compareOpen, () => setCompareOpen(false));
+            useBackToClose(detailOpen, () => setDetailOpen(false));
 
             const closeTut = () => setTut(false);
 
@@ -752,6 +772,13 @@
                                             <option key={val} value={val}>{val}%</option>
                                         ))}
                                     </select>
+                                    {/* Salir de la selección: limpia todas las marcas */}
+                                    {selectedCount > 0 && (
+                                        <button onClick={clearSelected} aria-label="Salir de la selección" className="flex items-center gap-1 px-2 py-1.5 rounded-xl text-[13px] font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 active:scale-95 transition flex-shrink-0">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                            Salir
+                                        </button>
+                                    )}
                                     {/* Con 2 o 3 marcados aparece el botón para comparar */}
                                     {selectedItems.length >= 2 && (
                                         <button onClick={() => setCompareOpen(true)} aria-label={`Comparar los ${selectedItems.length} marcados`} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-600 text-white text-[13px] font-bold shadow-sm shadow-blue-500/30 active:scale-95 transition flex-shrink-0">
