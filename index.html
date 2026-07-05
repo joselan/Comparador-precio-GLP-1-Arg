@@ -322,16 +322,20 @@
             useBackToClose(compareOpen, () => setCompareOpen(false));
             useBackToClose(detailOpen, () => setDetailOpen(false));
 
-            // El menú de opciones (⋮) se cierra al tocar en cualquier parte fuera de él.
+            // El menú de opciones (⋮) se cierra al tocar fuera de él. Se intercepta el
+            // click en FASE DE CAPTURA y se frena: así el toque de afuera SÓLO cierra el
+            // menú, sin activar lo que haya debajo (una fila abre su ficha, un botón, etc.).
             useEffect(() => {
                 if (!optionsOpen) return;
-                const onDown = (e) => {
+                const onClickOutside = (e) => {
                     if (optionsRef.current && optionsRef.current.contains(e.target)) return;
                     if (optionsBtnRef.current && optionsBtnRef.current.contains(e.target)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
                     setOptionsOpen(false);
                 };
-                document.addEventListener('pointerdown', onDown);
-                return () => document.removeEventListener('pointerdown', onDown);
+                document.addEventListener('click', onClickOutside, true);
+                return () => document.removeEventListener('click', onClickOutside, true);
             }, [optionsOpen]);
 
             const closeTut = () => setTut(false);
@@ -747,8 +751,6 @@
                         })()}
                     </main>
 
-                    {/* Fondo para cerrar el menú de opciones al tocar afuera */}
-                    {optionsOpen && <div className="fixed inset-0 z-30" onClick={() => setOptionsOpen(false)}></div>}
 
                     {/* Barra inferior fija: todos los controles al alcance del pulgar */}
                     <div className="fixed inset-x-0 bottom-0 z-40">
