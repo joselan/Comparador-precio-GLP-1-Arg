@@ -108,7 +108,7 @@ const PRODUCT_META = {
   Obetide:  { lab: 'Elea',         psp: '-',            hasPsp: false, canSplit: false, color: 'bg-purple-500' },
 };
 
-// --- Sync con la app "calc-precio-mounjaro-Argentina" ---
+// --- Sync con la app "calc-precio-mounjaro-Argentina" (verificado en Actions) ---
 // Esa app lee sus precios EN VIVO desde su propio proyecto Firebase; acá los
 // upserteamos al final de cada corrida para que se actualice sola. Escritura
 // del lado servidor con Admin SDK usando una credencial DEDICADA de ese
