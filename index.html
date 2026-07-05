@@ -117,7 +117,8 @@
             Droplet: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.7l5.66 5.66a8 8 0 1 1-11.32 0z"/></svg>,
             Capsule: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="8" width="20" height="8" rx="4"/><line x1="12" y1="8" x2="12" y2="16"/></svg>,
             Dots: () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg>,
-            Chart: () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"></path><path d="m19 9-5 5-4-4-3 3"></path></svg>
+            Chart: () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"></path><path d="m19 9-5 5-4-4-3 3"></path></svg>,
+            Scale: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
         };
 
         const defaultDb = {
@@ -255,6 +256,7 @@
             const [showHistory, setShowHistory] = useState(false);
             const [selected, setSelected] = useState({});      // filas elegidas para comparar (label|dose → true)
             const [onlySelected, setOnlySelected] = useState(false); // ver sólo las elegidas
+            const [compareOpen, setCompareOpen] = useState(false);   // pantalla cara a cara (exactamente 2 marcados)
 
             // 1. Cargar datos en Tiempo Real desde Firebase
             useEffect(() => {
@@ -367,6 +369,45 @@
                 }
             };
 
+            // Resumen de texto de la comparación cara a cara (para compartir/copiar)
+            const buildCompareText = (A, B) => {
+                const lines = ['💊 Comparación GLP-1/GIP Argentina', ''];
+                [A, B].forEach(it => {
+                    lines.push(`▪ ${it.label} ${shortDose(it.dose)} — ${it.lab}`);
+                    if (it.r) {
+                        lines.push(`   Precio caja: ${formatCurrency(it.r.final)}`);
+                        if (it.canSplit) lines.push(`   Por mes (rinde 2): ${formatCurrency(it.r.final / 2)}`);
+                        const sv = it.r.pvp - it.r.final;
+                        if (sv > 0) lines.push(`   Ahorro vs PVP: ${formatCurrency(sv)} (${(sv / it.r.pvp * 100).toFixed(0)}%)`);
+                    } else {
+                        lines.push('   Sin precio publicado');
+                    }
+                });
+                if (A.r && B.r) {
+                    const monthly = isMonthly && A.canSplit && B.canSplit;
+                    const vA = monthly ? A.r.final / 2 : A.r.final;
+                    const vB = monthly ? B.r.final / 2 : B.r.final;
+                    const cheaper = vA <= vB ? A : B, pricier = cheaper === A ? B : A;
+                    const cv = cheaper === A ? vA : vB, pv = pricier === A ? vA : vB;
+                    const diff = Math.abs(vA - vB);
+                    lines.push('');
+                    lines.push(diff === 0
+                        ? `Cuestan lo mismo${monthly ? ' por mes' : ''}.`
+                        : `${cheaper.label} ${shortDose(cheaper.dose)} es más barato por ${formatCurrency(diff)} (${(diff / pv * 100).toFixed(0)}% menos)${monthly ? ' por mes' : ''}.`);
+                }
+                lines.push('', `Compará el tuyo: ${window.location.href}`);
+                return lines.join('\n');
+            };
+
+            const shareCompare = async (A, B) => {
+                const text = buildCompareText(A, B);
+                if (navigator.share) {
+                    try { await navigator.share({ title: 'Comparación GLP-1/GIP Argentina', text }); return; }
+                    catch (e) { if (e.name === 'AbortError') return; }
+                }
+                window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+            };
+
             // Abre la ficha de detalle para un producto+dosis (desde la tabla)
             const openDetail = (label, dIdx) => {
                 setMed(label);
@@ -418,6 +459,29 @@
             // El modo "Elegidos" sólo rige mientras haya algo elegido (derivado, sin
             // efectos secundarios dentro de updaters de estado).
             const filterOn = onlySelected && selectedCount > 0;
+
+            // Datos completos de cada fila marcada (para la pantalla de comparación
+            // 1‑a‑1). Reusa el mismo cálculo que la tabla, con los descuentos activos.
+            const selectedItems = useMemo(() => Object.keys(selected).map(k => {
+                const sep = k.indexOf('|');
+                const label = k.slice(0, sep);
+                const dose = k.slice(sep + 1);
+                const prod = db[label];
+                if (!prod) return null;
+                const dIdx = prod.doses.findIndex(d => d.name === dose);
+                if (dIdx < 0) return null;
+                const doseObj = prod.doses[dIdx];
+                const r = doseObj.pvp
+                    ? calc(doseObj.pvp, prod, pspPercFor(label, prod, doseObj.name, usePsp), ooss, isMonthly, recetarioPercFor(prod, recetario))
+                    : null;
+                return { key: k, label, dose, dIdx, lab: prod.lab, color: prod.color, canSplit: prod.canSplit, hasPsp: prod.hasPsp, psp: prod.psp, r };
+            }).filter(Boolean), [selected, db, ooss, usePsp, isMonthly, recetario]);
+
+            // Si dejan de ser exactamente 2 (limpiaron, o la BD cambió en vivo),
+            // se cierra la pantalla de comparación para no quedar en un estado raro.
+            useEffect(() => {
+                if (compareOpen && selectedItems.length !== 2) setCompareOpen(false);
+            }, [compareOpen, selectedItems.length]);
 
             // En modo "Elegidos" se muestran sólo las filas elegidas; las barras se
             // re-escalan al máximo del set mostrado para que la comparación sea clara.
@@ -667,6 +731,13 @@
                                     </button>
                                 </div>
                             )}
+                            {/* Botón para abrir la comparación cara a cara: sólo con 2 marcados */}
+                            {selectedItems.length === 2 && !compareOpen && (
+                                <button onClick={() => setCompareOpen(true)} className="mb-2 w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-blue-600 text-white font-black shadow-lg shadow-blue-500/30 active:scale-[0.98] transition">
+                                    <Icons.Scale />
+                                    <span className="truncate">Comparar {selectedItems[0].label} {shortDose(selectedItems[0].dose)} <span className="font-semibold opacity-80">vs</span> {selectedItems[1].label} {shortDose(selectedItems[1].dose)}</span>
+                                </button>
+                            )}
                         </div>
                         <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 shadow-[0_-6px_24px_rgba(0,0,0,0.08)]">
                             <div className="max-w-2xl mx-auto p-3 space-y-2" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
@@ -827,6 +898,112 @@
                             </div>
                         </div>
                     )}
+
+                    {/* Pantalla de comparación cara a cara (exactamente 2 marcados) */}
+                    {compareOpen && selectedItems.length === 2 && (() => {
+                        const [A, B] = selectedItems;
+                        const bothPriced = !!(A.r && B.r);
+                        const monthlyBanner = isMonthly && A.canSplit && B.canSplit;
+                        const vOf = it => monthlyBanner ? it.r.final / 2 : it.r.final;
+                        let cheaper = null, pricier = null, diff = 0, diffPct = 0;
+                        if (bothPriced) {
+                            cheaper = vOf(A) <= vOf(B) ? A : B;
+                            pricier = cheaper === A ? B : A;
+                            diff = Math.abs(vOf(A) - vOf(B));
+                            diffPct = vOf(pricier) ? diff / vOf(pricier) * 100 : 0;
+                        }
+                        // Una fila de métrica: rótulo centrado + 2 columnas. Con aNum/bNum
+                        // resalta en verde el más conveniente (menor precio, o mayor ahorro).
+                        const metric = (label, aStr, bStr, aNum, bNum, opts) => {
+                            opts = opts || {};
+                            const can = aNum != null && bNum != null && aNum !== bNum;
+                            let aWin = false, bWin = false;
+                            if (can) { const aBetter = opts.higherBetter ? aNum > bNum : aNum < bNum; aWin = aBetter; bWin = !aBetter; }
+                            const size = opts.big ? 'text-lg sm:text-xl' : 'text-sm';
+                            const tone = w => w ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-200';
+                            return (
+                                <div className={`py-2.5 ${opts.big ? 'bg-slate-50 dark:bg-slate-900/40 rounded-2xl my-1' : ''}`}>
+                                    <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mb-1">{label}</div>
+                                    <div className="grid grid-cols-2 items-center">
+                                        <div className={`px-2 text-center font-bold tabular-nums ${size} ${tone(aWin)}`}>{aStr}</div>
+                                        <div className={`px-2 text-center font-bold tabular-nums border-l border-slate-100 dark:border-slate-700/60 ${size} ${tone(bWin)}`}>{bStr}</div>
+                                    </div>
+                                </div>
+                            );
+                        };
+                        const pspStr = it => !it.hasPsp ? 'No tiene' : (usePsp && it.r ? `- ${formatCurrency(it.r.pspAmt)} (${(it.r.pspPerc * 100).toFixed(0)}%)` : 'No aplicado');
+                        return (
+                            <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center">
+                                <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setCompareOpen(false)}></div>
+                                <div className="relative bg-white dark:bg-slate-800 w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92vh] overflow-y-auto">
+                                    <div className="sticky top-0 z-10 bg-white/95 dark:bg-slate-800/95 backdrop-blur px-5 pt-4 pb-3 flex items-center justify-between border-b border-slate-100 dark:border-slate-700">
+                                        <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2"><Icons.Scale /> Comparación</h2>
+                                        <button onClick={() => setCompareOpen(false)} className="p-2 -m-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><Icons.Close /></button>
+                                    </div>
+                                    <div className="p-4 sm:p-5">
+                                        {/* Cabeceras de los 2 productos */}
+                                        <div className="grid grid-cols-2 mb-3">
+                                            {[A, B].map((it, idx) => (
+                                                <div key={it.key} className={`px-2 text-center ${idx === 1 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`}>
+                                                    <div className="w-16 h-16 mx-auto bg-white rounded-2xl border border-slate-200 dark:border-slate-600 flex items-center justify-center overflow-hidden p-1 mb-2">
+                                                        {imgFor(it.label, it.dose)
+                                                            ? <img src={imgFor(it.label, it.dose)} alt={it.label} className="max-w-full max-h-full object-contain" />
+                                                            : <span className={`w-9 h-9 rounded-lg flex items-center justify-center text-white ${styleFor(it.color).chip}`}>{React.createElement(glyphFor(it.label))}</span>}
+                                                    </div>
+                                                    <div className="font-black text-slate-900 dark:text-white leading-tight">{it.label}</div>
+                                                    <div className="text-xs text-slate-500 dark:text-slate-300 font-semibold">{shortDose(it.dose)}</div>
+                                                    <div className="text-[11px] text-slate-400">{it.lab}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* Chips de descuentos activos (contexto de los números) */}
+                                        <div className="flex flex-wrap justify-center gap-1.5 mb-3">
+                                            {ooss > 0 && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">Dto. extra {ooss}%</span>}
+                                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${usePsp ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-400 line-through'}`}>PSP</span>
+                                            {isMonthly && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">Rinde 2 meses</span>}
+                                            {recetario && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">Rx Solidario</span>}
+                                        </div>
+
+                                        {/* Banner ganador */}
+                                        {bothPriced ? (
+                                            diff === 0 ? (
+                                                <div className="text-center text-sm font-bold py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 mb-2">Cuestan lo mismo{monthlyBanner ? ' por mes' : ''} 🤝</div>
+                                            ) : (
+                                                <div className="text-center py-3 px-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-100 dark:border-emerald-900/40 mb-2">
+                                                    <span className="font-black text-emerald-700 dark:text-emerald-300">{cheaper.label} {shortDose(cheaper.dose)}</span>
+                                                    <span className="text-emerald-700 dark:text-emerald-300 text-sm"> es más barato por </span>
+                                                    <span className="font-black text-emerald-700 dark:text-emerald-300">{formatCurrency(diff)}</span>
+                                                    <span className="text-emerald-700 dark:text-emerald-300 text-sm"> ({diffPct.toFixed(0)}% menos{monthlyBanner ? ' por mes' : ''})</span>
+                                                </div>
+                                            )
+                                        ) : (
+                                            <div className="text-center text-sm font-semibold py-3 px-4 rounded-2xl bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 mb-2">Falta el PVP de {(!A.r ? A : B).label} {shortDose((!A.r ? A : B).dose)} — todavía no se puede comparar el precio.</div>
+                                        )}
+
+                                        {/* Precio destacado + costo por mes */}
+                                        {metric('Precio final por caja', A.r ? formatCurrency(A.r.final) : 'Sin precio', B.r ? formatCurrency(B.r.final) : 'Sin precio', A.r ? A.r.final : null, B.r ? B.r.final : null, { big: true })}
+                                        {metric('Costo por mes (rinde 2)', A.canSplit ? (A.r ? formatCurrency(A.r.final / 2) : 'Sin precio') : 'No se divide', B.canSplit ? (B.r ? formatCurrency(B.r.final / 2) : 'Sin precio') : 'No se divide', (A.canSplit && A.r) ? A.r.final / 2 : null, (B.canSplit && B.r) ? B.r.final / 2 : null)}
+
+                                        <div className="text-[11px] uppercase tracking-wider font-bold text-slate-400 text-center mt-4 mb-1 border-t border-slate-100 dark:border-slate-700 pt-3">Desglose</div>
+                                        {metric('PVP (precio lista)', A.r ? formatCurrency(A.r.pvp) : '—', B.r ? formatCurrency(B.r.pvp) : '—', A.r ? A.r.pvp : null, B.r ? B.r.pvp : null)}
+                                        {metric(`Dto. extra${ooss > 0 ? ` (${ooss}%)` : ''}`, (ooss > 0 && A.r) ? '- ' + formatCurrency(A.r.oossAmt) : '—', (ooss > 0 && B.r) ? '- ' + formatCurrency(B.r.oossAmt) : '—')}
+                                        {metric('Descuento PSP', pspStr(A), pspStr(B))}
+                                        {metric('Recetario Solidario', (A.r && A.r.recAmt > 0) ? '- ' + formatCurrency(A.r.recAmt) : '—', (B.r && B.r.recAmt > 0) ? '- ' + formatCurrency(B.r.recAmt) : '—')}
+                                        {metric('Ahorro vs PVP', A.r ? `${formatCurrency(A.r.pvp - A.r.final)} (${((A.r.pvp - A.r.final) / A.r.pvp * 100).toFixed(0)}%)` : '—', B.r ? `${formatCurrency(B.r.pvp - B.r.final)} (${((B.r.pvp - B.r.final) / B.r.pvp * 100).toFixed(0)}%)` : '—', A.r ? A.r.pvp - A.r.final : null, B.r ? B.r.pvp - B.r.final : null, { higherBetter: true })}
+
+                                        <div className="text-[11px] uppercase tracking-wider font-bold text-slate-400 text-center mt-4 mb-1 border-t border-slate-100 dark:border-slate-700 pt-3">Ficha</div>
+                                        {metric('Laboratorio', A.lab, B.lab)}
+                                        {metric('Rinde 2 meses', A.canSplit ? 'Sí' : 'No', B.canSplit ? 'Sí' : 'No')}
+
+                                        <button onClick={() => shareCompare(A, B)} className="w-full mt-5 flex items-center justify-center gap-2 py-3 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold active:scale-[0.98] transition shadow-lg">
+                                            <Icons.Share /> Compartir comparación
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {showHistory && <HistoryModal />}
 
