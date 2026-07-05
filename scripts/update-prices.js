@@ -56,6 +56,11 @@ const ALERT_RECIPIENTS = (process.env.ALERT_EMAILS || 'joselanglois@gmail.com, j
 const WARN_CHANGE = parseFloat(process.env.WARN_CHANGE || '0.40');
 const BLOCK_CHANGE = parseFloat(process.env.BLOCK_CHANGE || '0.80');
 
+// Resiliencia ante baches de alfabeta: timeout de navegación y reintentos por
+// producto (un timeout puntual ya no tira abajo toda la corrida). Configurables.
+const NAV_TIMEOUT = parseInt(process.env.NAV_TIMEOUT || '45000', 10);   // ms por navegación
+const SCRAPE_RETRIES = parseInt(process.env.SCRAPE_RETRIES || '2', 10); // reintentos extra (3 intentos en total)
+
 // --- Medication config ---
 // Cada dosis declara los mg exactos que deben aparecer en la fila de alfabeta.
 // `optional: true` = presentación anunciada pero quizás aún no publicada; su
@@ -476,6 +481,26 @@ async function sendEmail(changedMeds, newPrices, warnings) {
 }
 
 // --- Scraping ---
+// Reintenta una función async ante fallos transitorios (timeouts de navegación,
+// baches de red de alfabeta), con backoff simple. Devuelve el primer resultado
+// exitoso; si se agotan los intentos, propaga el último error.
+async function withRetries(fn, { tries = SCRAPE_RETRIES + 1, label = '', baseDelay = 2000 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < tries) {
+        const waitMs = baseDelay * attempt; // 2s, 4s, ...
+        console.log(`  ↻ ${label}: intento ${attempt}/${tries} falló (${err.message}) — reintento en ${(waitMs / 1000)}s`);
+        if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 async function getProductPageHtml(browser, searchTerm) {
   const page = await browser.newPage();
   try {
@@ -490,7 +515,7 @@ async function getProductPageHtml(browser, searchTerm) {
 
     await page.goto('https://www.alfabeta.net/precio/buscar.html', {
       waitUntil: 'networkidle2',
-      timeout: 30000,
+      timeout: NAV_TIMEOUT,
     });
 
     const inputSel = 'input[name="str"], input[type="search"], input[type="text"]';
@@ -577,7 +602,8 @@ function parsePricesFromHtml(html, medName, config, { log = false } = {}) {
 
 async function scrapeMedication(browser, medName, config) {
   const warnings = [];
-  const html = await getProductPageHtml(browser, config.searchTerm);
+  // Reintenta la navegación: un timeout puntual de alfabeta no debe frenar al producto.
+  const html = await withRetries(() => getProductPageHtml(browser, config.searchTerm), { label: medName });
   if (!html) {
     warnings.push(`${medName}: la búsqueda en alfabeta no devolvió resultados.`);
     return { prices: {}, warnings };
@@ -823,7 +849,7 @@ async function main() {
   await admin.app().delete();
 }
 
-module.exports = { parsePrice, extractMgValues, matchDose, parsePricesFromHtml, MEDICATIONS, PRODUCT_META, normalizeMeta, buildSnapshot, buildMounjaroCalcFields, planMounjaroSync, MOUNJARO_CALC, esAlerta };
+module.exports = { parsePrice, extractMgValues, matchDose, parsePricesFromHtml, MEDICATIONS, PRODUCT_META, normalizeMeta, buildSnapshot, buildMounjaroCalcFields, planMounjaroSync, MOUNJARO_CALC, esAlerta, withRetries };
 
 if (require.main === module) {
   const run = TEST_EMAIL ? sendTestEmail() : main();

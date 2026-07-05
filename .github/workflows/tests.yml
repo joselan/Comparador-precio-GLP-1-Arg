@@ -29,3 +29,4 @@ jobs:
           node test-normalize.js
           node test-snapshot.js
           node test-mounjaro-sync.js
+          node test-retries.js
