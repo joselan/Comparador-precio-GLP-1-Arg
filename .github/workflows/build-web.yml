@@ -1,0 +1,50 @@
+name: Build Web
+
+# Reconstruye el index.html de la raíz (optimizado: JSX transpilado + Tailwind
+# estático) a partir de la fuente editable src/index.html, y lo commitea.
+# Así el sitio se sigue sirviendo como estático (Vercel/Netlify) sin Babel ni
+# Tailwind Play CDN en el navegador. Se edita src/index.html; esto genera el resto.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/build-web.js'
+      - 'tailwind.config.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/build-web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build index.html
+        run: npm run build
+
+      - name: Commit built index.html if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if git diff --cached --quiet; then
+            echo "index.html sin cambios — nada que commitear."
+          else
+            git commit -m "Build: regenerar index.html desde src/ [skip ci]"
+            git push
+          fi

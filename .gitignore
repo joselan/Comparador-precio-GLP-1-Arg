@@ -1,1 +1,4 @@
 node_modules/
+# Temporales del build del front (scripts/build-web.js)
+.tw-input.css
+.tw-output.css
