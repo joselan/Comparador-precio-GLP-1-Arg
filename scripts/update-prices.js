@@ -501,6 +501,33 @@ async function withRetries(fn, { tries = SCRAPE_RETRIES + 1, label = '', baseDel
   throw lastErr;
 }
 
+// Diagnóstico: ante la PRIMERA falla del run, captura qué le devolvió alfabeta
+// al runner (URL, título, cantidad de inputs y un pedazo del texto) al log, y
+// guarda el HTML + una captura (se suben como artifact del job). Sirve para
+// distinguir un bloqueo/captcha de un cambio de layout. Se hace una sola vez.
+let diagDumped = false;
+async function dumpDiag(page) {
+  const fs = require('fs');
+  const path = require('path');
+  const url = page.url();
+  const title = await page.title().catch(() => '(sin título)');
+  const inputCount = await page.evaluate(() => document.querySelectorAll('input').length).catch(() => -1);
+  const bodyText = await page.evaluate(() => (document.body ? document.body.innerText : '').slice(0, 800)).catch(() => '');
+  console.log('\n🔎 DIAGNÓSTICO alfabeta (primera falla del run):');
+  console.log('   URL final :', url);
+  console.log('   Título    :', JSON.stringify(title));
+  console.log('   #inputs   :', inputCount, '(el buscador esperado es input[name="str"])');
+  console.log('   Texto (primeros 800 chars):');
+  console.log((bodyText || '(vacío)').split('\n').map(l => '   | ' + l).join('\n'));
+  try {
+    fs.writeFileSync(path.join(__dirname, 'diag-alfabeta.html'), await page.content());
+    await page.screenshot({ path: path.join(__dirname, 'diag-alfabeta.png') });
+    console.log('   📎 Guardados diag-alfabeta.html y diag-alfabeta.png (artifact del job).');
+  } catch (e) {
+    console.log('   (no se pudo guardar HTML/captura:', e.message, ')');
+  }
+}
+
 async function getProductPageHtml(browser, searchTerm) {
   const page = await browser.newPage();
   try {
@@ -548,6 +575,13 @@ async function getProductPageHtml(browser, searchTerm) {
 
     console.log(`  Product: ${await page.title()}`);
     return await page.content();
+  } catch (err) {
+    // Capturar el diagnóstico una sola vez por corrida, con la página aún abierta.
+    if (!diagDumped) {
+      diagDumped = true;
+      await dumpDiag(page).catch(() => {});
+    }
+    throw err;
   } finally {
     await page.close();
   }

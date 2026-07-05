@@ -2,3 +2,6 @@ node_modules/
 # Temporales del build del front (scripts/build-web.js)
 .tw-input.css
 .tw-output.css
+# Diagnóstico del scraper ante fallas (se generan en CI, no se commitean)
+scripts/diag-alfabeta.html
+scripts/diag-alfabeta.png
