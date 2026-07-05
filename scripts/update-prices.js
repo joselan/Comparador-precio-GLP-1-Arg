@@ -176,6 +176,10 @@ async function syncMounjaroCalc(currentDb) {
   }
   try {
     const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_MOUNJARO);
+    // Diagnóstico sin exponer datos: sólo booleanos (los valores del secret los
+    // enmascara GitHub igualmente). Si project_ok es false, la clave pegada es
+    // de OTRO proyecto y por eso Firestore devuelve PERMISSION_DENIED.
+    console.log(`  Sync credencial → type=service_account: ${sa.type === 'service_account'} · project_ok(${MOUNJARO_CALC.projectHint}): ${sa.project_id === MOUNJARO_CALC.projectHint} · email_del_proyecto: ${(sa.client_email || '').endsWith('@' + MOUNJARO_CALC.projectHint + '.iam.gserviceaccount.com')}`);
     const app = admin.apps.find(a => a && a.name === 'mounjaroCalc')
       || admin.initializeApp({ credential: admin.credential.cert(sa) }, 'mounjaroCalc');
     const calcDb = app.firestore();
