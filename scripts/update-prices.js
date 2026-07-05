@@ -214,6 +214,7 @@ async function syncMounjaroCalc(currentDb) {
         ...toWrite,
         fuente: 'alfabeta.net',
         actualizado: admin.firestore.FieldValue.serverTimestamp(),
+        lastUpdated: new Date().toISOString(),
       }, { merge: true });
       console.log(`💊→ calc-precio-mounjaro-arg ${MOUNJARO_CALC.collection}/${MOUNJARO_CALC.docId} actualizado: ${Object.entries(toWrite).map(([k, v]) => `${k}=${v}`).join(' · ')}`);
     }
