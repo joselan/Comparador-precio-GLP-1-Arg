@@ -1,12 +1,12 @@
 /**
- * Test de la función mergeDb del frontend (index.html).
+ * Test de la función mergeDb del frontend (src/index.html).
  *
  * mergeDb combina la estructura local (defaultDb: productos y dosis nuevos,
  * ej. Mounjaro 7.5/10 mg) con los precios que vienen de Firebase. Los precios
  * de Firebase mandan; las dosis que aún no están en Firebase se conservan desde
  * la base local (con pvp null hasta que se publiquen).
  *
- * Como el proyecto es de un solo archivo, se extrae la función de index.html.
+ * La app vive en src/index.html, así que se extrae la función de ahí.
  * Está acoplado a esa definición: si el test no la encuentra, falla con un
  * mensaje claro para actualizar la extracción.
  */
@@ -15,10 +15,12 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+// Se lee la FUENTE (src/index.html), no el index.html de la raíz (que es el
+// build compilado y no tiene la definición legible de mergeDb).
+const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf8');
 const match = html.match(/const mergeDb = ([\s\S]*?\n {8}};)/);
 if (!match) {
-  console.error('✗ No se encontró la función mergeDb en index.html — actualizá la extracción de test-mergedb.js.');
+  console.error('✗ No se encontró la función mergeDb en src/index.html — actualizá la extracción de test-mergedb.js.');
   process.exit(1);
 }
 // eslint-disable-next-line no-eval
