@@ -1,0 +1,34 @@
+name: Test Alert Email
+
+# Manda un correo de PRUEBA a los destinatarios de alertas (no scrapea ni toca
+# Firebase). Sirve para verificar que las alertas llegan bien a cada casilla.
+#   - Se puede disparar a mano desde la pestaña Actions (workflow_dispatch).
+#   - También corre solo cuando cambia este mismo archivo (para probar el setup).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/test-email.yml'
+
+jobs:
+  test-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: scripts
+
+      - name: Send test email
+        run: node update-prices.js --test-email
+        working-directory: scripts
+        env:
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}

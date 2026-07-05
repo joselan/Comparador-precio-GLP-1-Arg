@@ -25,6 +25,10 @@
 // con Node pelado).
 
 const DRY_RUN = process.argv.includes('--dry-run');
+// `node update-prices.js --test-email` sólo manda un correo de prueba a los
+// destinatarios y sale (no scrapea ni toca Firebase). Sirve para verificar que
+// las alertas llegan bien a cada casilla.
+const TEST_EMAIL = process.argv.includes('--test-email');
 
 // --- Firebase Init (lazy; se omite en dry-run) ---
 let admin = null;
@@ -389,6 +393,62 @@ function buildEmailHtml(changedMeds, newPrices, warnings) {
   return html;
 }
 
+// Un email SÓLO se dispara por algo accionable: cambios de precio, bloqueos,
+// saltos grandes (incluidos los de Mounjaro) o fallas duras del scraping/sync.
+// Las advertencias informativas —una dosis "sin match" que conserva su precio,
+// dos dosis con el mismo PVP, un producto que no está en la base— NO disparan
+// email por sí solas: si todo está bien y no cambian precios, no llega nada.
+const ALERT_MARKERS = [
+  'BLOQUEADO',                  // cambio > BLOCK_CHANGE: no se aplicó
+  'cambio grande',             // cambio > WARN_CHANGE: aplicado, a revisar
+  'supera ±',                  // salto de Mounjaro > MOUNJARO_MAX_JUMP
+  'Sync Mounjaro→calc falló',  // el sync a la app calc no pudo escribir
+  'no encontró NINGÚN precio', // ¿cambió la página de alfabeta?
+  'error de scraping',         // excepción scrapeando un producto
+];
+function esAlerta(w) {
+  return ALERT_MARKERS.some((m) => w.includes(m));
+}
+
+// Correo de prueba: no scrapea ni toca Firebase, sólo verifica el canal.
+async function sendTestEmail() {
+  if (!GMAIL_APP_PASSWORD) {
+    console.log('  ⚠ GMAIL_APP_PASSWORD no configurado — no se puede enviar el email de prueba');
+    process.exitCode = 1;
+    return;
+  }
+  const nodemailer = require('nodemailer');
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: ADMIN_EMAIL, pass: GMAIL_APP_PASSWORD },
+  });
+  const html = `<div style="font-family:system-ui,Arial,sans-serif;color:#0f172a;line-height:1.5">
+    <h2 style="margin:0 0 8px">✅ Email de prueba — Comparador GLP-1</h2>
+    <p>Si estás leyendo esto, las alertas del scraper llegan bien a esta casilla.</p>
+    <p>De ahora en más vas a recibir un correo <b>sólo</b> cuando haya:</p>
+    <ul>
+      <li>Cambios de precio en algún producto</li>
+      <li>Bloqueos por cambios muy grandes (&gt; ${(BLOCK_CHANGE * 100).toFixed(0)}%)</li>
+      <li>Saltos grandes marcados para revisar (&gt; ${(WARN_CHANGE * 100).toFixed(0)}%)</li>
+      <li>Saltos de Mounjaro por encima de ±${(MOUNJARO_MAX_JUMP * 100).toFixed(0)}% o fallas del sync</li>
+    </ul>
+    <p>Si un día está todo bien y no cambia ningún precio, <b>no</b> te llega nada.</p>
+    <hr><p style="color:#94a3b8;font-size:12px">Destinatarios: ${ALERT_RECIPIENTS.join(', ')} · Fuente: alfabeta.net</p>
+  </div>`;
+  try {
+    await transporter.sendMail({
+      from: `"GLP-1 Comparador" <${ADMIN_EMAIL}>`,
+      to: ALERT_RECIPIENTS.join(', '),
+      subject: '✅ GLP-1 Comparador — email de prueba de alertas',
+      html,
+    });
+    console.log('  ✉ Email de prueba enviado a', ALERT_RECIPIENTS.join(', '));
+  } catch (err) {
+    console.error('  ✗ Error enviando email de prueba:', err.message);
+    process.exitCode = 1;
+  }
+}
+
 async function sendEmail(changedMeds, newPrices, warnings) {
   if (!GMAIL_APP_PASSWORD) {
     console.log('  ⚠ GMAIL_APP_PASSWORD no configurado — se omite el email');
@@ -742,11 +802,15 @@ async function main() {
     allWarnings.push(...syncWarnings);
   }
 
-  // 4. Email: con cambios, o solo-advertencias para poder controlarlo
-  if (changedMeds.length > 0 || allWarnings.length > 0) {
+  // 4. Email: SÓLO si hay algo accionable — cambios de precio o alertas
+  // (bloqueos, saltos grandes, saltos/fallas de Mounjaro). Las advertencias
+  // informativas no disparan correo por sí solas.
+  const alertas = allWarnings.filter(esAlerta);
+  if (changedMeds.length > 0 || alertas.length > 0) {
     await sendEmail(changedMeds, newPricesForChanged, allWarnings);
   } else {
-    console.log('\n— Sin cambios de precios en esta pasada');
+    const info = allWarnings.length ? ` (${allWarnings.length} advertencia(s) informativa(s), sin alertas)` : '';
+    console.log(`\n— Sin cambios de precios ni alertas: no se envía email${info}`);
   }
 
   // Control: si ningún producto devolvió precios, fallar el job para que
@@ -759,10 +823,11 @@ async function main() {
   await admin.app().delete();
 }
 
-module.exports = { parsePrice, extractMgValues, matchDose, parsePricesFromHtml, MEDICATIONS, PRODUCT_META, normalizeMeta, buildSnapshot, buildMounjaroCalcFields, planMounjaroSync, MOUNJARO_CALC };
+module.exports = { parsePrice, extractMgValues, matchDose, parsePricesFromHtml, MEDICATIONS, PRODUCT_META, normalizeMeta, buildSnapshot, buildMounjaroCalcFields, planMounjaroSync, MOUNJARO_CALC, esAlerta };
 
 if (require.main === module) {
-  main().catch(err => {
+  const run = TEST_EMAIL ? sendTestEmail() : main();
+  run.catch(err => {
     console.error('Fatal error:', err);
     process.exit(1);
   });
