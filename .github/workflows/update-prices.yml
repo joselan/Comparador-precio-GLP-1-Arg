@@ -40,6 +40,9 @@ jobs:
         working-directory: scripts
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # Credencial del proyecto calc-precio-mounjaro-arg para sincronizar los
+          # PVP de Mounjaro en esa app. Si el secret no existe, el sync se omite.
+          FIREBASE_SERVICE_ACCOUNT_MOUNJARO: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MOUNJARO }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           # Google Chrome is pre-installed on ubuntu-latest runners
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome-stable

@@ -108,6 +108,137 @@ const PRODUCT_META = {
   Obetide:  { lab: 'Elea',         psp: '-',            hasPsp: false, canSplit: false, color: 'bg-purple-500' },
 };
 
+// --- Sync con la app "calc-precio-mounjaro-Argentina" ---
+// Esa app lee sus precios EN VIVO desde su propio proyecto Firebase; acá los
+// upserteamos al final de cada corrida para que se actualice sola. Escritura
+// del lado servidor con Admin SDK usando una credencial DEDICADA de ese
+// proyecto (secret FIREBASE_SERVICE_ACCOUNT_MOUNJARO). Si el secret no está
+// configurado, el sync se omite sin afectar al comparador.
+const MOUNJARO_CALC = {
+  projectHint: 'calc-precio-mounjaro-arg',
+  collection: 'precios_mounjaro',
+  docId: 'actuales',
+  historyCollection: 'precios_mounjaro_historial',
+  alertsCollection: 'precios_mounjaro_alertas',
+  // dosis del comparador → campo del doc destino (PVP en ARS, numérico)
+  fieldByDose: {
+    '2.5mg (KwikPen x1)': 'p25',
+    '5mg (KwikPen x1)':   'p5',
+    '7.5mg (KwikPen x1)': 'p75',
+    '10mg (KwikPen x1)':  'p10',
+  },
+  doseByField: { p25: '2.5mg', p5: '5mg', p75: '7.5mg', p10: '10mg' },
+};
+// Umbral de salto brusco (fracción). Si un precio nuevo difiere del último
+// guardado en más de esto, NO se pisa: queda una alerta para revisión manual.
+const MOUNJARO_MAX_JUMP = parseFloat(process.env.MOUNJARO_MAX_JUMP || '0.20');
+
+// {p25, p5, p75, p10} a partir de la BD del comparador (sólo dosis con PVP).
+function buildMounjaroCalcFields(currentDb) {
+  const out = {};
+  const doses = (currentDb && currentDb.Mounjaro && currentDb.Mounjaro.doses) || [];
+  for (const d of doses) {
+    const field = MOUNJARO_CALC.fieldByDose[d.name];
+    if (field && typeof d.pvp === 'number' && d.pvp > 0) out[field] = d.pvp;
+  }
+  return out;
+}
+
+// Decide qué campos escribir comparando contra los últimos guardados en la app
+// destino. Un salto mayor a maxJump no se escribe y genera alerta.
+function planMounjaroSync(newFields, prevFields, maxJump) {
+  const toWrite = {};
+  const alerts = [];
+  let changed = false;
+  for (const [field, value] of Object.entries(newFields)) {
+    const prev = prevFields ? prevFields[field] : undefined;
+    if (typeof prev === 'number' && prev > 0) {
+      const variation = (value - prev) / prev;
+      if (Math.abs(variation) > maxJump) {
+        alerts.push({ campo: field, precio_anterior: prev, precio_nuevo: value, variacion_pct: Math.round(variation * 10000) / 100 });
+        continue; // no pisar automáticamente
+      }
+      if (value !== prev) changed = true;
+    } else {
+      changed = true; // campo nuevo (sin valor previo)
+    }
+    toWrite[field] = value;
+  }
+  return { toWrite, alerts, changed };
+}
+
+async function syncMounjaroCalc(currentDb) {
+  const warnings = [];
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT_MOUNJARO) {
+    console.log('\n↷ Sync Mounjaro→calc omitido (falta el secret FIREBASE_SERVICE_ACCOUNT_MOUNJARO)');
+    return warnings;
+  }
+  try {
+    const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_MOUNJARO);
+    const app = admin.apps.find(a => a && a.name === 'mounjaroCalc')
+      || admin.initializeApp({ credential: admin.credential.cert(sa) }, 'mounjaroCalc');
+    const calcDb = app.firestore();
+    const ref = calcDb.collection(MOUNJARO_CALC.collection).doc(MOUNJARO_CALC.docId);
+
+    const newFields = buildMounjaroCalcFields(currentDb);
+    if (!Object.keys(newFields).length) {
+      warnings.push('Sync Mounjaro→calc: no hay PVPs de Mounjaro para sincronizar.');
+      return warnings;
+    }
+
+    const snap = await ref.get();
+    const prev = snap.exists ? snap.data() : {};
+    const { toWrite, alerts, changed } = planMounjaroSync(newFields, prev, MOUNJARO_MAX_JUMP);
+
+    // Alertas por saltos bruscos: quedan en la colección + en el email del scraper.
+    for (const a of alerts) {
+      const dosis = MOUNJARO_CALC.doseByField[a.campo];
+      await calcDb.collection(MOUNJARO_CALC.alertsCollection).add({
+        ...a,
+        presentacion: dosis,
+        fuente: 'alfabeta.net',
+        umbral_pct: MOUNJARO_MAX_JUMP * 100,
+        fecha: admin.firestore.FieldValue.serverTimestamp(),
+        motivo: `variación ${a.variacion_pct}% supera el umbral ±${(MOUNJARO_MAX_JUMP * 100).toFixed(0)}%`,
+      });
+      warnings.push(`⚠ Mounjaro→calc ${dosis}: salto de ${formatARS(a.precio_anterior)} a ${formatARS(a.precio_nuevo)} (${a.variacion_pct}%) supera ±${(MOUNJARO_MAX_JUMP * 100).toFixed(0)}% — NO se sobreescribió; queda en ${MOUNJARO_CALC.alertsCollection} para revisar.`);
+    }
+
+    if (Object.keys(toWrite).length) {
+      await ref.set({
+        ...toWrite,
+        fuente: 'alfabeta.net',
+        actualizado: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      console.log(`💊→ calc-precio-mounjaro-arg ${MOUNJARO_CALC.collection}/${MOUNJARO_CALC.docId} actualizado: ${Object.entries(toWrite).map(([k, v]) => `${k}=${v}`).join(' · ')}`);
+    }
+
+    // Historial: un doc por día, sólo cuando algo cambió (o primera corrida),
+    // con el estado resultante de las 4 presentaciones.
+    if (changed || !snap.exists) {
+      const resulting = {};
+      for (const f of Object.keys(MOUNJARO_CALC.doseByField)) {
+        if (typeof toWrite[f] === 'number') resulting[f] = toWrite[f];
+        else if (typeof prev[f] === 'number') resulting[f] = prev[f];
+      }
+      const today = new Date().toISOString().split('T')[0];
+      await calcDb.collection(MOUNJARO_CALC.historyCollection).doc(today).set({
+        ...resulting,
+        fuente: 'alfabeta.net',
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      console.log(`📅→ Historial Mounjaro→calc guardado: ${today}`);
+    } else {
+      console.log('→ Mounjaro→calc sin cambios (no se escribe historial)');
+    }
+  } catch (err) {
+    // El sync NUNCA debe romper la corrida del comparador.
+    warnings.push(`Sync Mounjaro→calc falló: ${err.message} (el comparador no se vio afectado).`);
+    console.error('  ✗ Sync Mounjaro→calc:', err.message);
+  }
+  return warnings;
+}
+
 // Aplica PRODUCT_META sobre el db actual (sin tocar las dosis/precios).
 // Devuelve la lista de cambios realizados (vacía si ya estaba prolijo).
 function normalizeMeta(currentDb) {
@@ -559,6 +690,7 @@ async function main() {
     console.log('\n🔍 DRY RUN: no se escribió en Firebase ni se enviaron emails.');
     console.log(`Cambios detectados: ${changedMeds.length > 0 ? changedMeds.join(', ') : 'ninguno'}`);
     console.log(`Metadata a normalizar: ${metaChanged ? metaChanges.length + ' cambios' : 'ninguno (ya prolijo)'}`);
+    console.log(`Sync Mounjaro→calc (simulado): ${JSON.stringify(buildMounjaroCalcFields(currentDb))}`);
     if (medsWithPrices === 0) {
       console.error('✗ Ningún producto devolvió precios.');
       process.exitCode = 1;
@@ -590,7 +722,14 @@ async function main() {
     console.log(`📅 Historial completo guardado: ${today} (${Object.keys(snapshot).length} productos)`);
   }
 
-  // 3. Email: con cambios, o solo-advertencias para poder controlarlo
+  // 3. Sincronizar los PVP de Mounjaro con la app calc-precio-mounjaro-arg.
+  // Aditivo: cualquier problema queda como advertencia y no afecta al comparador.
+  if (medsWithPrices > 0) {
+    const syncWarnings = await syncMounjaroCalc(currentDb);
+    allWarnings.push(...syncWarnings);
+  }
+
+  // 4. Email: con cambios, o solo-advertencias para poder controlarlo
   if (changedMeds.length > 0 || allWarnings.length > 0) {
     await sendEmail(changedMeds, newPricesForChanged, allWarnings);
   } else {
@@ -607,7 +746,7 @@ async function main() {
   await admin.app().delete();
 }
 
-module.exports = { parsePrice, extractMgValues, matchDose, parsePricesFromHtml, MEDICATIONS, PRODUCT_META, normalizeMeta, buildSnapshot };
+module.exports = { parsePrice, extractMgValues, matchDose, parsePricesFromHtml, MEDICATIONS, PRODUCT_META, normalizeMeta, buildSnapshot, buildMounjaroCalcFields, planMounjaroSync, MOUNJARO_CALC };
 
 if (require.main === module) {
   main().catch(err => {
