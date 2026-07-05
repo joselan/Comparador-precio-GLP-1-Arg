@@ -51,3 +51,16 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           # Google Chrome is pre-installed on ubuntu-latest runners
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome-stable
+
+      # Si el scrape falló, subir lo que alfabeta le devolvió al runner (HTML +
+      # captura) para diagnosticar si es un bloqueo/captcha o un cambio de layout.
+      - name: Upload alfabeta diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alfabeta-diagnostics
+          path: |
+            scripts/diag-alfabeta.html
+            scripts/diag-alfabeta.png
+          if-no-files-found: ignore
+          retention-days: 7
