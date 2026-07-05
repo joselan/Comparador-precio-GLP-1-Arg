@@ -112,7 +112,8 @@ const PRODUCT_META = {
 // Esa app lee sus precios EN VIVO desde su propio proyecto Firebase; acá los
 // upserteamos al final de cada corrida para que se actualice sola. Escritura
 // del lado servidor con Admin SDK usando una credencial DEDICADA de ese
-// proyecto (secret FIREBASE_SERVICE_ACCOUNT_MOUNJARO). Si el secret no está
+// proyecto (secret FIREBASE_SERVICE_ACCOUNT_MOUNJARO: clave del Admin SDK de
+// Firebase, que ya trae permisos de Firestore). Si el secret no está
 // configurado, el sync se omite sin afectar al comparador.
 const MOUNJARO_CALC = {
   projectHint: 'calc-precio-mounjaro-arg',
