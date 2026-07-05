@@ -255,8 +255,8 @@
             const [optionsOpen, setOptionsOpen] = useState(false);
             const [showHistory, setShowHistory] = useState(false);
             const [selected, setSelected] = useState({});      // filas elegidas para comparar (label|dose → true)
-            const [onlySelected, setOnlySelected] = useState(false); // ver sólo las elegidas
-            const [compareOpen, setCompareOpen] = useState(false);   // pantalla cara a cara (exactamente 2 marcados)
+            const [compareOpen, setCompareOpen] = useState(false);   // pantalla de comparación (2 o 3 productos)
+            const [maxHint, setMaxHint] = useState(false);           // aviso "hasta 3" al intentar un 4º
 
             // 1. Cargar datos en Tiempo Real desde Firebase
             useEffect(() => {
@@ -369,10 +369,10 @@
                 }
             };
 
-            // Resumen de texto de la comparación cara a cara (para compartir/copiar)
-            const buildCompareText = (A, B) => {
+            // Resumen de texto de la comparación (2 o 3 productos) para compartir/copiar
+            const buildCompareText = (items) => {
                 const lines = ['💊 Comparación GLP-1/GIP Argentina', ''];
-                [A, B].forEach(it => {
+                items.forEach(it => {
                     lines.push(`▪ ${it.label} ${shortDose(it.dose)} — ${it.lab}`);
                     if (it.r) {
                         lines.push(`   Precio caja: ${formatCurrency(it.r.final)}`);
@@ -383,24 +383,24 @@
                         lines.push('   Sin precio publicado');
                     }
                 });
-                if (A.r && B.r) {
-                    const monthly = isMonthly && A.canSplit && B.canSplit;
-                    const vA = monthly ? A.r.final / 2 : A.r.final;
-                    const vB = monthly ? B.r.final / 2 : B.r.final;
-                    const cheaper = vA <= vB ? A : B, pricier = cheaper === A ? B : A;
-                    const cv = cheaper === A ? vA : vB, pv = pricier === A ? vA : vB;
-                    const diff = Math.abs(vA - vB);
+                const priced = items.filter(it => it.r);
+                if (priced.length >= 2) {
+                    const monthly = isMonthly && items.every(it => it.canSplit);
+                    const vOf = it => monthly ? it.r.final / 2 : it.r.final;
+                    const sorted = [...priced].sort((a, b) => vOf(a) - vOf(b));
+                    const cheapest = sorted[0], second = sorted[1];
+                    const diff = vOf(second) - vOf(cheapest);
                     lines.push('');
                     lines.push(diff === 0
-                        ? `Cuestan lo mismo${monthly ? ' por mes' : ''}.`
-                        : `${cheaper.label} ${shortDose(cheaper.dose)} es más barato por ${formatCurrency(diff)} (${(diff / pv * 100).toFixed(0)}% menos)${monthly ? ' por mes' : ''}.`);
+                        ? `Hay empate en el más barato${monthly ? ' (por mes)' : ''}.`
+                        : `${cheapest.label} ${shortDose(cheapest.dose)} es el más barato — ${formatCurrency(diff)} (${(diff / vOf(second) * 100).toFixed(0)}%) menos que ${second.label} ${shortDose(second.dose)}${monthly ? ' por mes' : ''}.`);
                 }
                 lines.push('', `Compará el tuyo: ${window.location.href}`);
                 return lines.join('\n');
             };
 
-            const shareCompare = async (A, B) => {
-                const text = buildCompareText(A, B);
+            const shareCompare = async (items) => {
+                const text = buildCompareText(items);
                 if (navigator.share) {
                     try { await navigator.share({ title: 'Comparación GLP-1/GIP Argentina', text }); return; }
                     catch (e) { if (e.name === 'AbortError') return; }
@@ -449,16 +449,22 @@
             const keyOf = (label, dose) => label + '|' + dose;
             const isSelected = (label, dose) => !!selected[keyOf(label, dose)];
             const selectedCount = Object.keys(selected).length;
-            const toggleSelect = (label, dose) => setSelected(s => {
+            const MAX_COMPARE = 3; // se pueden comparar hasta 3 productos
+            const toggleSelect = (label, dose) => {
                 const k = keyOf(label, dose);
-                const n = { ...s };
-                if (n[k]) delete n[k]; else n[k] = true;
-                return n;
-            });
-            const clearSelected = () => { setSelected({}); setOnlySelected(false); };
-            // El modo "Elegidos" sólo rige mientras haya algo elegido (derivado, sin
-            // efectos secundarios dentro de updaters de estado).
-            const filterOn = onlySelected && selectedCount > 0;
+                // Al intentar marcar un 4º, se avisa y no se agrega.
+                if (!selected[k] && selectedCount >= MAX_COMPARE) {
+                    setMaxHint(true);
+                    setTimeout(() => setMaxHint(false), 1800);
+                    return;
+                }
+                setSelected(s => {
+                    const n = { ...s };
+                    if (n[k]) delete n[k]; else n[k] = true;
+                    return n;
+                });
+            };
+            const clearSelected = () => setSelected({});
 
             // Datos completos de cada fila marcada (para la pantalla de comparación
             // 1‑a‑1). Reusa el mismo cálculo que la tabla, con los descuentos activos.
@@ -477,15 +483,13 @@
                 return { key: k, label, dose, dIdx, lab: prod.lab, color: prod.color, canSplit: prod.canSplit, hasPsp: prod.hasPsp, psp: prod.psp, r };
             }).filter(Boolean), [selected, db, ooss, usePsp, isMonthly, recetario]);
 
-            // Si dejan de ser exactamente 2 (limpiaron, o la BD cambió en vivo),
-            // se cierra la pantalla de comparación para no quedar en un estado raro.
+            // Si quedan menos de 2 marcados (limpiaron, o la BD cambió en vivo), se
+            // cierra la pantalla de comparación para no quedar en un estado raro.
             useEffect(() => {
-                if (compareOpen && selectedItems.length !== 2) setCompareOpen(false);
+                if (compareOpen && selectedItems.length < 2) setCompareOpen(false);
             }, [compareOpen, selectedItems.length]);
 
-            // En modo "Elegidos" se muestran sólo las filas elegidas; las barras se
-            // re-escalan al máximo del set mostrado para que la comparación sea clara.
-            const displayedList = filterOn ? comparison.list.filter(it => isSelected(it.label, it.dose)) : comparison.list;
+            const displayedList = comparison.list;
             const maxComparePrice = displayedList.reduce((m, it) => Math.max(m, it.perMonth), 0) || 1;
 
             // Fila de la tabla (compartida entre la vista por precio y por laboratorio)
@@ -666,13 +670,13 @@
                             {!grouped ? (
                                 <div>
                                     {displayedList.map(item => renderRow(item))}
-                                    {!filterOn && comparison.pending.map((p, i) => renderPendingRow(p, 'p' + i))}
+                                    {comparison.pending.map((p, i) => renderPendingRow(p, 'p' + i))}
                                 </div>
                             ) : (
                                 <div>
                                     {comparison.byLab.map(g => {
-                                        const rows = filterOn ? g.rows.filter(it => isSelected(it.label, it.dose)) : g.rows;
-                                        const pend = filterOn ? [] : g.pending;
+                                        const rows = g.rows;
+                                        const pend = g.pending;
                                         if (!rows.length && !pend.length) return null;
                                         return (
                                         <div key={g.lab}>
@@ -731,6 +735,11 @@
                                     </button>
                                 </div>
                             )}
+                            {maxHint && (
+                                <div className="mb-2 mx-auto w-fit px-3 py-2 rounded-xl bg-slate-900/90 dark:bg-white/90 text-white dark:text-slate-900 text-[12px] font-bold shadow-lg">
+                                    Podés comparar hasta 3 productos
+                                </div>
+                            )}
                         </div>
                         <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 shadow-[0_-6px_24px_rgba(0,0,0,0.08)]">
                             <div className="max-w-2xl mx-auto p-3 space-y-2" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
@@ -743,22 +752,22 @@
                                             <option key={val} value={val}>{val}%</option>
                                         ))}
                                     </select>
-                                    {selectedCount > 0 && (
-                                        <div className="flex items-center bg-slate-100 dark:bg-slate-700/60 rounded-xl flex-shrink-0">
-                                            <button onClick={() => setOnlySelected(false)} className={`px-1 py-1.5 rounded-lg text-[11px] font-bold transition ${!filterOn ? 'bg-white dark:bg-slate-800 shadow text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Todos</button>
-                                            <button onClick={() => setOnlySelected(true)} aria-label="Ver sólo los marcados" className={`px-1 py-1.5 rounded-lg text-[11px] font-bold transition ${filterOn ? 'bg-blue-600 text-white shadow' : 'text-slate-500 dark:text-slate-400'}`}>Marcados</button>
-                                            {/* Con exactamente 2 marcados, se abre la comparación cara a cara desde acá */}
-                                            {selectedItems.length === 2 && (
-                                                <button onClick={() => setCompareOpen(true)} aria-label="Comparar los 2 marcados" className="px-1.5 py-1.5 rounded-lg text-[11px] font-bold text-blue-600 dark:text-blue-400 border-l border-slate-300/60 dark:border-slate-500/40">Comparar</button>
-                                            )}
-                                        </div>
+                                    {/* Con 2 o 3 marcados aparece el botón para comparar */}
+                                    {selectedItems.length >= 2 && (
+                                        <button onClick={() => setCompareOpen(true)} aria-label={`Comparar los ${selectedItems.length} marcados`} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-600 text-white text-[13px] font-bold shadow-sm shadow-blue-500/30 active:scale-95 transition flex-shrink-0">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
+                                            Comparar ({selectedItems.length})
+                                        </button>
                                     )}
-                                    <button onClick={() => setGrouped(g => !g)} className="ml-auto flex-shrink-0 py-2 px-2 rounded-xl text-[13px] font-bold border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 active:scale-95 transition" aria-label="Cambiar vista: por precio o por laboratorio">
-                                        {grouped ? 'Por lab.' : 'Por $'}
-                                    </button>
-                                    <button onClick={() => setOptionsOpen(o => !o)} className={`w-8 h-8 flex items-center justify-center rounded-xl border flex-shrink-0 transition ${optionsOpen ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 border-transparent' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300'}`} aria-label="Opciones">
-                                        <Icons.Dots />
-                                    </button>
+                                    {/* "Por $" y ⋮ agrupados: si la fila envuelve, bajan juntos y alineados a la derecha */}
+                                    <div className="flex items-center gap-1 ml-auto flex-shrink-0">
+                                        <button onClick={() => setGrouped(g => !g)} className="flex-shrink-0 py-2 px-2 rounded-xl text-[13px] font-bold border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 active:scale-95 transition" aria-label="Cambiar vista: por precio o por laboratorio">
+                                            {grouped ? 'Por lab.' : 'Por $'}
+                                        </button>
+                                        <button onClick={() => setOptionsOpen(o => !o)} className={`w-8 h-8 flex items-center justify-center rounded-xl border flex-shrink-0 transition ${optionsOpen ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 border-transparent' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300'}`} aria-label="Opciones">
+                                            <Icons.Dots />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Fila 2: los tres toggles (el color azul indica activo).
@@ -897,38 +906,57 @@
                     )}
 
                     {/* Pantalla de comparación cara a cara (exactamente 2 marcados) */}
-                    {compareOpen && selectedItems.length === 2 && (() => {
-                        const [A, B] = selectedItems;
-                        const bothPriced = !!(A.r && B.r);
-                        const monthlyBanner = isMonthly && A.canSplit && B.canSplit;
-                        const vOf = it => monthlyBanner ? it.r.final / 2 : it.r.final;
-                        let cheaper = null, pricier = null, diff = 0, diffPct = 0;
-                        if (bothPriced) {
-                            cheaper = vOf(A) <= vOf(B) ? A : B;
-                            pricier = cheaper === A ? B : A;
-                            diff = Math.abs(vOf(A) - vOf(B));
-                            diffPct = vOf(pricier) ? diff / vOf(pricier) * 100 : 0;
+                    {compareOpen && selectedItems.length >= 2 && selectedItems.length <= 3 && (() => {
+                        const items = selectedItems;
+                        const cols = items.length;
+                        const gridCls = cols === 3 ? 'grid-cols-3' : 'grid-cols-2';
+                        const money = cols === 3 ? formatCompact : formatCurrency; // sin centavos con 3 columnas
+                        const priceSize = cols === 3 ? 'text-sm sm:text-base' : 'text-lg sm:text-xl';
+                        const cellSize = cols === 3 ? 'text-[12px] sm:text-sm' : 'text-sm';
+
+                        const priced = items.filter(it => it.r);
+                        const monthly = isMonthly && items.every(it => it.canSplit);
+                        const vOf = it => monthly ? it.r.final / 2 : it.r.final;
+                        let cheapest = null, second = null, diff = 0, diffPct = 0;
+                        if (priced.length >= 2) {
+                            const sorted = [...priced].sort((a, b) => vOf(a) - vOf(b));
+                            cheapest = sorted[0]; second = sorted[1];
+                            diff = vOf(second) - vOf(cheapest);
+                            diffPct = vOf(second) ? diff / vOf(second) * 100 : 0;
                         }
-                        // Una fila de métrica: rótulo centrado + 2 columnas. Con aNum/bNum
-                        // resalta en verde el más conveniente (menor precio, o mayor ahorro).
-                        const metric = (label, aStr, bStr, aNum, bNum, opts) => {
+                        const missing = items.filter(it => !it.r);
+
+                        // Fila de métrica: rótulo centrado + N columnas. `nums` (array) resalta
+                        // en verde el/los mejores (menor precio, o mayor ahorro con higherBetter).
+                        const metric = (label, strs, nums, opts) => {
                             opts = opts || {};
-                            const can = aNum != null && bNum != null && aNum !== bNum;
-                            let aWin = false, bWin = false;
-                            if (can) { const aBetter = opts.higherBetter ? aNum > bNum : aNum < bNum; aWin = aBetter; bWin = !aBetter; }
-                            const size = opts.big ? 'text-lg sm:text-xl' : 'text-sm';
-                            const tone = w => w ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-200';
+                            let best = null;
+                            const valid = (nums || []).filter(n => n != null);
+                            if (valid.length >= 2 && !valid.every(v => v === valid[0])) {
+                                best = opts.higherBetter ? Math.max(...valid) : Math.min(...valid);
+                            }
+                            const size = opts.big ? priceSize : cellSize;
                             return (
                                 <div className={`py-2.5 ${opts.big ? 'bg-slate-50 dark:bg-slate-900/40 rounded-2xl my-1' : ''}`}>
                                     <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mb-1">{label}</div>
-                                    <div className="grid grid-cols-2 items-center">
-                                        <div className={`px-2 text-center font-bold tabular-nums ${size} ${tone(aWin)}`}>{aStr}</div>
-                                        <div className={`px-2 text-center font-bold tabular-nums border-l border-slate-100 dark:border-slate-700/60 ${size} ${tone(bWin)}`}>{bStr}</div>
+                                    <div className={`grid ${gridCls} items-center`}>
+                                        {strs.map((s, i) => {
+                                            const win = best != null && nums && nums[i] === best;
+                                            return <div key={i} className={`px-1.5 text-center font-bold tabular-nums ${size} ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''} ${win ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-200'}`}>{s}</div>;
+                                        })}
                                     </div>
                                 </div>
                             );
                         };
-                        const pspStr = it => !it.hasPsp ? 'No tiene' : (usePsp && it.r ? `- ${formatCurrency(it.r.pspAmt)} (${(it.r.pspPerc * 100).toFixed(0)}%)` : 'No aplicado');
+                        // Valor a mostrar por ítem
+                        const finalStr = it => it.r ? money(it.r.final) : 'Sin precio';
+                        const monthStr = it => it.canSplit ? (it.r ? money(it.r.final / 2) : 'Sin precio') : 'No se divide';
+                        const pvpStr = it => it.r ? money(it.r.pvp) : '—';
+                        const oossStr = it => (ooss > 0 && it.r) ? '- ' + money(it.r.oossAmt) : '—';
+                        const pspStr = it => !it.hasPsp ? 'No tiene' : (usePsp && it.r ? `- ${money(it.r.pspAmt)} (${(it.r.pspPerc * 100).toFixed(0)}%)` : 'No aplicado');
+                        const recStr = it => (it.r && it.r.recAmt > 0) ? '- ' + money(it.r.recAmt) : '—';
+                        const saveStr = it => it.r ? `${money(it.r.pvp - it.r.final)} (${((it.r.pvp - it.r.final) / it.r.pvp * 100).toFixed(0)}%)` : '—';
+
                         return (
                             <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center">
                                 <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setCompareOpen(false)}></div>
@@ -938,18 +966,18 @@
                                         <button onClick={() => setCompareOpen(false)} className="p-2 -m-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><Icons.Close /></button>
                                     </div>
                                     <div className="p-4 sm:p-5">
-                                        {/* Cabeceras de los 2 productos */}
-                                        <div className="grid grid-cols-2 mb-3">
-                                            {[A, B].map((it, idx) => (
-                                                <div key={it.key} className={`px-2 text-center ${idx === 1 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`}>
-                                                    <div className="w-16 h-16 mx-auto bg-white rounded-2xl border border-slate-200 dark:border-slate-600 flex items-center justify-center overflow-hidden p-1 mb-2">
+                                        {/* Cabeceras de los productos */}
+                                        <div className={`grid ${gridCls} mb-3`}>
+                                            {items.map((it, idx) => (
+                                                <div key={it.key} className={`px-1.5 text-center ${idx > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`}>
+                                                    <div className={`${cols === 3 ? 'w-12 h-12' : 'w-16 h-16'} mx-auto bg-white rounded-2xl border border-slate-200 dark:border-slate-600 flex items-center justify-center overflow-hidden p-1 mb-2`}>
                                                         {imgFor(it.label, it.dose)
                                                             ? <img src={imgFor(it.label, it.dose)} alt={it.label} className="max-w-full max-h-full object-contain" />
-                                                            : <span className={`w-9 h-9 rounded-lg flex items-center justify-center text-white ${styleFor(it.color).chip}`}>{React.createElement(glyphFor(it.label))}</span>}
+                                                            : <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-white ${styleFor(it.color).chip}`}>{React.createElement(glyphFor(it.label))}</span>}
                                                     </div>
-                                                    <div className="font-black text-slate-900 dark:text-white leading-tight">{it.label}</div>
-                                                    <div className="text-xs text-slate-500 dark:text-slate-300 font-semibold">{shortDose(it.dose)}</div>
-                                                    <div className="text-[11px] text-slate-400">{it.lab}</div>
+                                                    <div className={`font-black text-slate-900 dark:text-white leading-tight ${cols === 3 ? 'text-[13px]' : ''}`}>{it.label}</div>
+                                                    <div className={`text-slate-500 dark:text-slate-300 font-semibold ${cols === 3 ? 'text-[11px]' : 'text-xs'}`}>{shortDose(it.dose)}</div>
+                                                    <div className="text-[11px] text-slate-400 leading-tight">{it.lab}</div>
                                                 </div>
                                             ))}
                                         </div>
@@ -962,38 +990,38 @@
                                             {recetario && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">Rx Solidario</span>}
                                         </div>
 
-                                        {/* Banner ganador */}
-                                        {bothPriced ? (
+                                        {/* Banner del más barato */}
+                                        {priced.length >= 2 ? (
                                             diff === 0 ? (
-                                                <div className="text-center text-sm font-bold py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 mb-2">Cuestan lo mismo{monthlyBanner ? ' por mes' : ''} 🤝</div>
+                                                <div className="text-center text-sm font-bold py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 mb-2">Hay empate en el más barato{monthly ? ' por mes' : ''} 🤝</div>
                                             ) : (
                                                 <div className="text-center py-3 px-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-100 dark:border-emerald-900/40 mb-2">
-                                                    <span className="font-black text-emerald-700 dark:text-emerald-300">{cheaper.label} {shortDose(cheaper.dose)}</span>
-                                                    <span className="text-emerald-700 dark:text-emerald-300 text-sm"> es más barato por </span>
-                                                    <span className="font-black text-emerald-700 dark:text-emerald-300">{formatCurrency(diff)}</span>
-                                                    <span className="text-emerald-700 dark:text-emerald-300 text-sm"> ({diffPct.toFixed(0)}% menos{monthlyBanner ? ' por mes' : ''})</span>
+                                                    <span className="font-black text-emerald-700 dark:text-emerald-300">{cheapest.label} {shortDose(cheapest.dose)}</span>
+                                                    <span className="text-emerald-700 dark:text-emerald-300 text-sm"> es el más barato — </span>
+                                                    <span className="font-black text-emerald-700 dark:text-emerald-300">{money(diff)}</span>
+                                                    <span className="text-emerald-700 dark:text-emerald-300 text-sm"> ({diffPct.toFixed(0)}%) menos que {second.label} {shortDose(second.dose)}{monthly ? ' por mes' : ''}</span>
                                                 </div>
                                             )
                                         ) : (
-                                            <div className="text-center text-sm font-semibold py-3 px-4 rounded-2xl bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 mb-2">Falta el PVP de {(!A.r ? A : B).label} {shortDose((!A.r ? A : B).dose)} — todavía no se puede comparar el precio.</div>
+                                            <div className="text-center text-sm font-semibold py-3 px-4 rounded-2xl bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 mb-2">Falta el PVP de {missing.map(it => `${it.label} ${shortDose(it.dose)}`).join(', ')} — no se puede comparar el precio todavía.</div>
                                         )}
 
                                         {/* Precio destacado + costo por mes */}
-                                        {metric('Precio final por caja', A.r ? formatCurrency(A.r.final) : 'Sin precio', B.r ? formatCurrency(B.r.final) : 'Sin precio', A.r ? A.r.final : null, B.r ? B.r.final : null, { big: true })}
-                                        {metric('Costo por mes (rinde 2)', A.canSplit ? (A.r ? formatCurrency(A.r.final / 2) : 'Sin precio') : 'No se divide', B.canSplit ? (B.r ? formatCurrency(B.r.final / 2) : 'Sin precio') : 'No se divide', (A.canSplit && A.r) ? A.r.final / 2 : null, (B.canSplit && B.r) ? B.r.final / 2 : null)}
+                                        {metric('Precio final por caja', items.map(finalStr), items.map(it => it.r ? it.r.final : null), { big: true })}
+                                        {metric('Costo por mes (rinde 2)', items.map(monthStr), items.map(it => (it.canSplit && it.r) ? it.r.final / 2 : null))}
 
                                         <div className="text-[11px] uppercase tracking-wider font-bold text-slate-400 text-center mt-4 mb-1 border-t border-slate-100 dark:border-slate-700 pt-3">Desglose</div>
-                                        {metric('PVP (precio lista)', A.r ? formatCurrency(A.r.pvp) : '—', B.r ? formatCurrency(B.r.pvp) : '—', A.r ? A.r.pvp : null, B.r ? B.r.pvp : null)}
-                                        {metric(`Dto. extra${ooss > 0 ? ` (${ooss}%)` : ''}`, (ooss > 0 && A.r) ? '- ' + formatCurrency(A.r.oossAmt) : '—', (ooss > 0 && B.r) ? '- ' + formatCurrency(B.r.oossAmt) : '—')}
-                                        {metric('Descuento PSP', pspStr(A), pspStr(B))}
-                                        {metric('Recetario Solidario', (A.r && A.r.recAmt > 0) ? '- ' + formatCurrency(A.r.recAmt) : '—', (B.r && B.r.recAmt > 0) ? '- ' + formatCurrency(B.r.recAmt) : '—')}
-                                        {metric('Ahorro vs PVP', A.r ? `${formatCurrency(A.r.pvp - A.r.final)} (${((A.r.pvp - A.r.final) / A.r.pvp * 100).toFixed(0)}%)` : '—', B.r ? `${formatCurrency(B.r.pvp - B.r.final)} (${((B.r.pvp - B.r.final) / B.r.pvp * 100).toFixed(0)}%)` : '—', A.r ? A.r.pvp - A.r.final : null, B.r ? B.r.pvp - B.r.final : null, { higherBetter: true })}
+                                        {metric('PVP (precio lista)', items.map(pvpStr), items.map(it => it.r ? it.r.pvp : null))}
+                                        {metric(`Dto. extra${ooss > 0 ? ` (${ooss}%)` : ''}`, items.map(oossStr), null)}
+                                        {metric('Descuento PSP', items.map(pspStr), null)}
+                                        {metric('Recetario Solidario', items.map(recStr), null)}
+                                        {metric('Ahorro vs PVP', items.map(saveStr), items.map(it => it.r ? it.r.pvp - it.r.final : null), { higherBetter: true })}
 
                                         <div className="text-[11px] uppercase tracking-wider font-bold text-slate-400 text-center mt-4 mb-1 border-t border-slate-100 dark:border-slate-700 pt-3">Ficha</div>
-                                        {metric('Laboratorio', A.lab, B.lab)}
-                                        {metric('Rinde 2 meses', A.canSplit ? 'Sí' : 'No', B.canSplit ? 'Sí' : 'No')}
+                                        {metric('Laboratorio', items.map(it => it.lab), null)}
+                                        {metric('Rinde 2 meses', items.map(it => it.canSplit ? 'Sí' : 'No'), null)}
 
-                                        <button onClick={() => shareCompare(A, B)} className="w-full mt-5 flex items-center justify-center gap-2 py-3 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold active:scale-[0.98] transition shadow-lg">
+                                        <button onClick={() => shareCompare(items)} className="w-full mt-5 flex items-center justify-center gap-2 py-3 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold active:scale-[0.98] transition shadow-lg">
                                             <Icons.Share /> Compartir comparación
                                         </button>
                                     </div>
