@@ -8,8 +8,13 @@ on:
     - cron: '0 21 * * 1-5'  #  6:00 PM ART
   push:
     branches: [main]
+    # Sólo re-corre el scraper cuando cambia el scraper (o sus deps), no cualquier
+    # cosa dentro de scripts/ (ej. el build del front build-web.js, los tests o
+    # deploy-rules.js): así tocar el front no dispara un scrape ni escribe en Firebase.
     paths:
-      - 'scripts/**'
+      - 'scripts/update-prices.js'
+      - 'scripts/package.json'
+      - 'scripts/package-lock.json'
       - '.github/workflows/update-prices.yml'
   workflow_dispatch: # Allow manual trigger for testing
     inputs:
