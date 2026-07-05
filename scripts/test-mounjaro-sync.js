@@ -3,7 +3,7 @@
  * - buildMounjaroCalcFields: mapea las dosis del comparador a {p25,p5,p75,p10}.
  * - planMounjaroSync: decide qué escribir y qué alertar (control de saltos ±20%).
  */
-const { buildMounjaroCalcFields, planMounjaroSync, MOUNJARO_CALC } = require('./update-prices.js');
+const { buildMounjaroCalcFields, planMounjaroSync, MOUNJARO_CALC, esAlerta } = require('./update-prices.js');
 
 let failures = 0;
 function check(desc, cond) {
@@ -74,6 +74,20 @@ check('Doc destino vacío: escribe los 4 sin alertas', Object.keys(plan.toWrite)
 
 // Config del destino documentada
 check('Config destino: precios_mounjaro/actuales', MOUNJARO_CALC.collection === 'precios_mounjaro' && MOUNJARO_CALC.docId === 'actuales');
+
+// --- Clasificación de alertas para el email (esAlerta) ---
+// Disparan email:
+check('Bloqueo es alerta', esAlerta('⛔ Wegovy 1mg: cambio de $ 100 a $ 500 (400%) BLOQUEADO por superar el 80%.'));
+check('Cambio grande es alerta', esAlerta('⚠ Ozempic 1mg: cambio grande de $ 100 a $ 160 (60%) — aplicado, pero conviene verificarlo.'));
+check('Salto Mounjaro es alerta', esAlerta('⚠ Mounjaro→calc 5mg: salto de $ 900.000 a $ 1.400.000 (55%) supera ±20% — NO se sobreescribió; queda en precios_mounjaro_alertas para revisar.'));
+check('Falla de sync es alerta', esAlerta('Sync Mounjaro→calc falló: PERMISSION_DENIED (el comparador no se vio afectado).'));
+check('Sin ningún precio es alerta', esAlerta('Ozempic: el scraper no encontró NINGÚN precio — ¿cambió la página de alfabeta?'));
+check('Error de scraping es alerta', esAlerta('Mounjaro: error de scraping — Navigation timeout'));
+// NO disparan email (advertencias informativas):
+check('"sin match — se conserva" NO es alerta', !esAlerta('Ozempic 0.25mg / 0.5mg (1.5ml + 6 ag): sin match en la página — se conserva $ 322.213,46.'));
+check('"MISMO PVP" NO es alerta', !esAlerta('⚠ Wegovy: "0.25 mg" y "0.5 mg" quedaron con el MISMO PVP ($ 322.213,46) — verificar que el matching sea correcto.'));
+check('"no existe en la base" NO es alerta', !esAlerta('Saxenda: no existe en la base de Firebase — se omite.'));
+check('"no hay PVPs de Mounjaro" NO es alerta', !esAlerta('Sync Mounjaro→calc: no hay PVPs de Mounjaro para sincronizar.'));
 
 console.log(failures === 0 ? '\n✅ TODOS LOS TESTS DEL SYNC MOUNJARO PASARON' : `\n❌ ${failures} TESTS FALLARON`);
 process.exit(failures === 0 ? 0 : 1);
