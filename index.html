@@ -881,18 +881,21 @@ function App() {
   };
   const buildCompareText = items => {
     const money = formatCompact;
+    const mensual = isMonthly;
     const P = items.map(it => ({
       it,
       id: it.key,
       nombre: `${it.label} ${shortDose(it.dose)}`,
       precioCaja: it.r ? it.r.final : null,
-      costoMes: it.r ? it.canSplit ? it.r.final / 2 : it.r.final : null
+      costoMes: it.r ? it.r.perMonth : null
     }));
     const lines = ['💊 Comparación GLP-1/GIP Argentina', ''];
     P.forEach(p => {
       lines.push(`▪ ${p.nombre} — ${p.it.lab}`);
       if (p.it.r) {
-        lines.push(`   Costo por mes: ${money(p.costoMes)} (${p.it.canSplit ? 'rinde 2 meses' : 'rinde 1 mes'})`);
+        if (mensual) {
+          lines.push(`   Costo por mes: ${money(p.costoMes)} (${p.it.canSplit ? 'rinde 2 meses' : 'rinde 1 mes'})`);
+        }
         lines.push(`   Precio por caja: ${money(p.precioCaja)}`);
         const sv = p.it.r.pvp - p.it.r.final;
         if (sv > 0) lines.push(`   Ahorro vs PVP: ${money(sv)} (${(sv / p.it.r.pvp * 100).toFixed(0)}%)`);
@@ -902,31 +905,41 @@ function App() {
     });
     const priced = P.filter(p => p.precioCaja != null);
     if (priced.length === P.length && priced.length >= 2) {
-      const minMes = Math.min(...priced.map(p => p.costoMes));
-      const maxMes = Math.max(...priced.map(p => p.costoMes));
       const minCaja = Math.min(...priced.map(p => p.precioCaja));
       const maxCaja = Math.max(...priced.map(p => p.precioCaja));
-      const masBaratoMes = priced.reduce((min, p) => p.costoMes < min.costoMes ? p : min, priced[0]);
       const masBaratoCaja = priced.reduce((min, p) => p.precioCaja < min.precioCaja ? p : min, priced[0]);
       lines.push('');
-      if (minMes === maxMes && minCaja === maxCaja) {
-        lines.push('Cuestan lo mismo.');
-      } else if (P.length === 2) {
-        if (masBaratoMes.id === masBaratoCaja.id) {
-          const elOtro = priced.find(p => p.id !== masBaratoMes.id);
-          const porcentaje = Math.round((elOtro.costoMes - masBaratoMes.costoMes) / elOtro.costoMes * 100);
-          lines.push(`${masBaratoMes.nombre} es la opción más conveniente: menor precio por caja y ${porcentaje}% de ahorro por mes frente a ${elOtro.nombre}.`);
+      if (!mensual) {
+        if (minCaja === maxCaja) {
+          lines.push('Cuestan lo mismo por caja.');
         } else {
-          const porcentajeAhorro = Math.round((masBaratoCaja.costoMes - masBaratoMes.costoMes) / masBaratoCaja.costoMes * 100);
-          lines.push(`${masBaratoCaja.nombre} tiene el menor precio por caja, pero ${masBaratoMes.nombre} es ${porcentajeAhorro}% más económico por mes al rendir 2 meses.`);
+          const masCaroCaja = priced.reduce((max, p) => p.precioCaja > max.precioCaja ? p : max, priced[0]);
+          const ahorro = Math.round((masCaroCaja.precioCaja - masBaratoCaja.precioCaja) / masCaroCaja.precioCaja * 100);
+          lines.push(`${masBaratoCaja.nombre} es el más económico por caja (${money(masBaratoCaja.precioCaja)}, hasta ${ahorro}% menos que el más caro).`);
         }
       } else {
-        if (masBaratoMes.id === masBaratoCaja.id) {
-          lines.push(`${masBaratoMes.nombre} lidera: el más económico por caja (${money(masBaratoCaja.precioCaja)}) y por mes (${money(masBaratoMes.costoMes)}).`);
+        const minMes = Math.min(...priced.map(p => p.costoMes));
+        const maxMes = Math.max(...priced.map(p => p.costoMes));
+        const masBaratoMes = priced.reduce((min, p) => p.costoMes < min.costoMes ? p : min, priced[0]);
+        if (minMes === maxMes && minCaja === maxCaja) {
+          lines.push('Cuestan lo mismo.');
+        } else if (P.length === 2) {
+          if (masBaratoMes.id === masBaratoCaja.id) {
+            const elOtro = priced.find(p => p.id !== masBaratoMes.id);
+            const porcentaje = Math.round((elOtro.costoMes - masBaratoMes.costoMes) / elOtro.costoMes * 100);
+            lines.push(`${masBaratoMes.nombre} es la opción más conveniente: menor precio por caja y ${porcentaje}% de ahorro por mes frente a ${elOtro.nombre}.`);
+          } else {
+            const porcentajeAhorro = Math.round((masBaratoCaja.costoMes - masBaratoMes.costoMes) / masBaratoCaja.costoMes * 100);
+            lines.push(`${masBaratoCaja.nombre} tiene el menor precio por caja, pero ${masBaratoMes.nombre} es ${porcentajeAhorro}% más económico por mes al rendir 2 meses.`);
+          }
         } else {
-          const masCaroMes = priced.reduce((max, p) => p.costoMes > max.costoMes ? p : max, priced[0]);
-          const ahorroMaximo = Math.round((masCaroMes.costoMes - masBaratoMes.costoMes) / masCaroMes.costoMes * 100);
-          lines.push(`Menor costo mensual: ${masBaratoMes.nombre} (${money(masBaratoMes.costoMes)}, ahorra ${ahorroMaximo}% vs el máximo). Menor precio por caja: ${masBaratoCaja.nombre} (${money(masBaratoCaja.precioCaja)}).`);
+          if (masBaratoMes.id === masBaratoCaja.id) {
+            lines.push(`${masBaratoMes.nombre} lidera: el más económico por caja (${money(masBaratoCaja.precioCaja)}) y por mes (${money(masBaratoMes.costoMes)}).`);
+          } else {
+            const masCaroMes = priced.reduce((max, p) => p.costoMes > max.costoMes ? p : max, priced[0]);
+            const ahorroMaximo = Math.round((masCaroMes.costoMes - masBaratoMes.costoMes) / masCaroMes.costoMes * 100);
+            lines.push(`Menor costo mensual: ${masBaratoMes.nombre} (${money(masBaratoMes.costoMes)}, ahorra ${ahorroMaximo}% vs el máximo). Menor precio por caja: ${masBaratoCaja.nombre} (${money(masBaratoCaja.precioCaja)}).`);
+          }
         }
       }
     }
@@ -1559,12 +1572,13 @@ function App() {
     const cols = items.length;
     const gridCls = cols === 3 ? 'grid-cols-3' : 'grid-cols-2';
     const money = formatCompact;
+    const mensual = isMonthly;
     const P = items.map(it => ({
       it,
       id: it.key,
       nombre: `${it.label} ${shortDose(it.dose)}`,
       precioCaja: it.r ? it.r.final : null,
-      costoMes: it.r ? it.canSplit ? it.r.final / 2 : it.r.final : null
+      costoMes: it.r ? it.r.perMonth : null
     }));
     const priced = P.filter(p => p.precioCaja != null);
     const missing = P.filter(p => p.precioCaja == null);
@@ -1580,6 +1594,14 @@ function App() {
       const masBaratoMes = productos.reduce((min, p) => p.costoMes < min.costoMes ? p : min, productos[0]);
       const masBaratoCaja = productos.reduce((min, p) => p.precioCaja < min.precioCaja ? p : min, productos[0]);
       const f = money;
+      if (!mensual) {
+        const masCaroCaja = productos.reduce((max, p) => p.precioCaja > max.precioCaja ? p : max, productos[0]);
+        const ahorro = Math.round((masCaroCaja.precioCaja - masBaratoCaja.precioCaja) / masCaroCaja.precioCaja * 100);
+        if (productos.length === 2) {
+          return React.createElement(React.Fragment, null, b(masBaratoCaja.nombre), " es m\xE1s econ\xF3mico por caja: ", f(masBaratoCaja.precioCaja), " vs ", f(masCaroCaja.precioCaja), " (", b(`${ahorro}% menos`), ").");
+        }
+        return React.createElement(React.Fragment, null, b(masBaratoCaja.nombre), " tiene el menor precio por caja (", f(masBaratoCaja.precioCaja), "), hasta un ", b(`${ahorro}% más barato`), " que el m\xE1s caro.");
+      }
       if (productos.length === 2) {
         if (masBaratoMes.id === masBaratoCaja.id) {
           const elOtro = productos.find(p => p.id !== masBaratoMes.id);
@@ -1668,24 +1690,26 @@ function App() {
     }, "Cuestan lo mismo \uD83E\uDD1D") : React.createElement("div", {
       className: "py-3 px-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-100 dark:border-emerald-900/40 mb-3 text-center text-[13px] sm:text-sm leading-relaxed text-emerald-800 dark:text-emerald-200"
     }, generarTextoBanner(P)), React.createElement("div", {
-      className: "pt-1 pb-1"
+      className: `pt-1 pb-1 ${mensual ? '' : 'pb-2 mb-1 border-b border-slate-100 dark:border-slate-700/50'}`
     }, React.createElement("div", {
       className: "text-[11px] uppercase tracking-wider font-black text-slate-500 dark:text-slate-300 text-center mb-2"
-    }, "Costo por mes"), React.createElement("div", {
+    }, mensual ? 'Costo por mes' : 'Precio por caja'), React.createElement("div", {
       className: `grid ${gridCls}`
     }, P.map((p, i) => {
-      const win = p.costoMes != null && p.costoMes === minMes;
+      const val = mensual ? p.costoMes : p.precioCaja;
+      const minVal = mensual ? minMes : minCaja;
+      const win = val != null && val === minVal;
       return React.createElement("div", {
         key: p.id,
         className: `px-1 text-center ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`
       }, React.createElement("div", {
         className: `font-black tabular-nums leading-none ${cols === 3 ? 'text-base sm:text-lg' : 'text-2xl sm:text-3xl'} ${win ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'}`
-      }, p.costoMes == null ? React.createElement("span", {
+      }, val == null ? React.createElement("span", {
         className: "text-sm font-bold text-slate-400"
-      }, "Sin precio") : money(p.costoMes)), p.costoMes != null && !p.it.canSplit && React.createElement("div", {
+      }, "Sin precio") : money(val)), mensual && p.costoMes != null && !p.it.canSplit && React.createElement("div", {
         className: "text-[10px] font-semibold text-slate-400 mt-1"
       }, "Rinde 1 mes"));
-    }))), React.createElement("div", {
+    }))), mensual && React.createElement("div", {
       className: "pt-1 pb-2 mb-1 border-b border-slate-100 dark:border-slate-700/50"
     }, React.createElement("div", {
       className: "text-[10px] uppercase tracking-wide font-semibold text-slate-400 text-center mb-1"
