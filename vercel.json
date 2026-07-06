@@ -1,6 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
+  "// build": "El index.html de la raíz ya viene pre-compilado (lo genera build-web.yml en CI). Vercel NO debe buildear ni instalar deps: sólo servir la raíz como estático. Sin esto, la presencia de package.json hace que Vercel entre en modo build y falle el deploy.",
+  "installCommand": "echo skip",
+  "buildCommand": "echo skip",
+  "outputDirectory": ".",
   "headers": [
     {
       "source": "/",
