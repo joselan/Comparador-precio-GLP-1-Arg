@@ -447,7 +447,7 @@
                         } else {
                             const masCaroCaja = priced.reduce((max, p) => p.precioCaja > max.precioCaja ? p : max, priced[0]);
                             const ahorro = Math.round(((masCaroCaja.precioCaja - masBaratoCaja.precioCaja) / masCaroCaja.precioCaja) * 100);
-                            lines.push(`${masBaratoCaja.nombre} es el más económico por caja (${money(masBaratoCaja.precioCaja)}, hasta ${ahorro}% menos que el más caro).`);
+                            lines.push(`${masBaratoCaja.nombre} es el más económico por caja (${money(masBaratoCaja.precioCaja)}, hasta ${ahorro}% menos que ${masCaroCaja.nombre}).`);
                         }
                     } else {
                         const minMes = Math.min(...priced.map(p => p.costoMes));
@@ -1031,7 +1031,7 @@
                                 if (productos.length === 2) {
                                     return <>{b(masBaratoCaja.nombre)} es más económico por caja: {f(masBaratoCaja.precioCaja)} vs {f(masCaroCaja.precioCaja)} ({b(`${ahorro}% menos`)}).</>;
                                 }
-                                return <>{b(masBaratoCaja.nombre)} tiene el menor precio por caja ({f(masBaratoCaja.precioCaja)}), hasta un {b(`${ahorro}% más barato`)} que el más caro.</>;
+                                return <>{b(masBaratoCaja.nombre)} tiene el menor precio por caja ({f(masBaratoCaja.precioCaja)}), hasta un {b(`${ahorro}% más barato`)} que {masCaroCaja.nombre}.</>;
                             }
                             if (productos.length === 2) {
                                 if (masBaratoMes.id === masBaratoCaja.id) {
@@ -1060,24 +1060,29 @@
                             <div className="flex flex-wrap justify-center gap-1 mt-1.5">
                                 {ooss > 0 && it.r && <Pill tone="slate">Dto. {ooss}%</Pill>}
                                 {it.r && it.r.pspPerc > 0 && <Pill tone="blue">PSP</Pill>}
-                                {it.canSplit && <Pill tone="green">Rinde 2m</Pill>}
+                                {mensual && it.canSplit && <Pill tone="green">Rinde 2m</Pill>}
                                 {it.r && it.r.recetarioPerc > 0 && <Pill tone="blue">Rx Sol.</Pill>}
                             </div>
                         );
 
                         // (3) Guion largo tenue para "sin valor" en el desglose. (4) Cada fila con
                         // borde inferior sutil para separar los datos en mobile. Sin verde acá.
+                        // Cada celda es un valor real o null (= vacío). Si TODAS las celdas de la
+                        // fila están vacías, la fila entera se omite (no aporta nada comparar guiones).
                         const dash = <span className="text-slate-300 dark:text-slate-600">—</span>;
-                        const infoRow = (label, cells) => (
-                            <div className="py-2 border-b border-slate-100 dark:border-slate-700/40">
-                                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mb-1">{label}</div>
-                                <div className={`grid ${gridCls}`}>
-                                    {cells.map((c, i) => (
-                                        <div key={i} className={`px-1.5 text-center text-[12px] sm:text-sm font-medium tabular-nums text-slate-600 dark:text-slate-300 ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`}>{c}</div>
-                                    ))}
+                        const infoRow = (label, cells) => {
+                            if (cells.every(c => c == null)) return null;
+                            return (
+                                <div className="py-2 border-b border-slate-100 dark:border-slate-700/40">
+                                    <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mb-1">{label}</div>
+                                    <div className={`grid ${gridCls}`}>
+                                        {cells.map((c, i) => (
+                                            <div key={i} className={`px-1.5 text-center text-[12px] sm:text-sm font-medium tabular-nums text-slate-600 dark:text-slate-300 ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`}>{c == null ? dash : c}</div>
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-                        );
+                            );
+                        };
 
                         return (
                             <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center">
@@ -1159,16 +1164,15 @@
                                         </div>
                                         )}
 
-                                        {/* (3)(4) Desglose: sin verde, con guiones tenues y bordes sutiles */}
-                                        <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mt-3 mb-1">Desglose</div>
-                                        {infoRow('PVP (precio lista)', P.map(p => p.it.r ? money(p.it.r.pvp) : dash))}
-                                        {infoRow(`Dto. extra${ooss > 0 ? ` (${ooss}%)` : ''}`, P.map(p => (ooss > 0 && p.it.r) ? '- ' + money(p.it.r.oossAmt) : dash))}
-                                        {infoRow('Descuento PSP', P.map(p => (p.it.r && p.it.r.pspPerc > 0) ? `- ${money(p.it.r.pspAmt)} (${(p.it.r.pspPerc * 100).toFixed(0)}%)` : dash))}
-                                        {infoRow('Recetario Solidario', P.map(p => (p.it.r && p.it.r.recAmt > 0) ? '- ' + money(p.it.r.recAmt) : dash))}
-                                        {infoRow('Ahorro vs PVP', P.map(p => p.it.r ? `${money(p.it.r.pvp - p.it.r.final)} (${((p.it.r.pvp - p.it.r.final) / p.it.r.pvp * 100).toFixed(0)}%)` : dash))}
-
-                                        <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mt-3 mb-1">Ficha</div>
-                                        {infoRow('Laboratorio', P.map(p => p.it.lab))}
+                                        {/* (3)(4) Desglose: sin verde, con guiones tenues y bordes sutiles.
+                                            Filas cuyos valores están todos vacíos se omiten. */}
+                                        <div className="mt-3">
+                                        {infoRow('PVP (precio lista)', P.map(p => p.it.r ? money(p.it.r.pvp) : null))}
+                                        {infoRow(`Dto. extra${ooss > 0 ? ` (${ooss}%)` : ''}`, P.map(p => (ooss > 0 && p.it.r) ? '- ' + money(p.it.r.oossAmt) : null))}
+                                        {infoRow('Descuento PSP', P.map(p => (p.it.r && p.it.r.pspPerc > 0) ? `- ${money(p.it.r.pspAmt)} (${(p.it.r.pspPerc * 100).toFixed(0)}%)` : null))}
+                                        {infoRow('Recetario Solidario', P.map(p => (p.it.r && p.it.r.recAmt > 0) ? '- ' + money(p.it.r.recAmt) : null))}
+                                        {infoRow('Ahorro vs PVP', P.map(p => p.it.r ? `${money(p.it.r.pvp - p.it.r.final)} (${((p.it.r.pvp - p.it.r.final) / p.it.r.pvp * 100).toFixed(0)}%)` : null))}
+                                        </div>
 
                                         <button onClick={() => shareCompare(items)} className="w-full mt-5 flex items-center justify-center gap-2 py-3 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold active:scale-[0.98] transition shadow-lg">
                                             <Icons.Share /> Compartir comparación
