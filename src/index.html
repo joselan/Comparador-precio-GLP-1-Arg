@@ -407,31 +407,59 @@
                 }
             };
 
-            // Resumen de texto de la comparación (2 o 3 productos) para compartir/copiar
+            // Resumen de texto de la comparación (2 o 3 productos) para compartir/copiar.
+            // Alineado con el banner: el costo por mes es la métrica principal (los que
+            // rinden 2 meses valen caja/2; los que rinden 1 mes, su caja). Mismo resumen
+            // condicional que generarTextoBanner, en texto plano.
             const buildCompareText = (items) => {
+                const money = formatCompact;
+                const P = items.map(it => ({
+                    it, id: it.key,
+                    nombre: `${it.label} ${shortDose(it.dose)}`,
+                    precioCaja: it.r ? it.r.final : null,
+                    costoMes: it.r ? (it.canSplit ? it.r.final / 2 : it.r.final) : null,
+                }));
                 const lines = ['💊 Comparación GLP-1/GIP Argentina', ''];
-                items.forEach(it => {
-                    lines.push(`▪ ${it.label} ${shortDose(it.dose)} — ${it.lab}`);
-                    if (it.r) {
-                        lines.push(`   Precio caja: ${formatCurrency(it.r.final)}`);
-                        if (it.canSplit) lines.push(`   Por mes (rinde 2): ${formatCurrency(it.r.final / 2)}`);
-                        const sv = it.r.pvp - it.r.final;
-                        if (sv > 0) lines.push(`   Ahorro vs PVP: ${formatCurrency(sv)} (${(sv / it.r.pvp * 100).toFixed(0)}%)`);
+                P.forEach(p => {
+                    lines.push(`▪ ${p.nombre} — ${p.it.lab}`);
+                    if (p.it.r) {
+                        lines.push(`   Costo por mes: ${money(p.costoMes)} (${p.it.canSplit ? 'rinde 2 meses' : 'rinde 1 mes'})`);
+                        lines.push(`   Precio por caja: ${money(p.precioCaja)}`);
+                        const sv = p.it.r.pvp - p.it.r.final;
+                        if (sv > 0) lines.push(`   Ahorro vs PVP: ${money(sv)} (${(sv / p.it.r.pvp * 100).toFixed(0)}%)`);
                     } else {
                         lines.push('   Sin precio publicado');
                     }
                 });
-                const priced = items.filter(it => it.r);
-                if (priced.length >= 2) {
-                    const monthly = isMonthly && items.every(it => it.canSplit);
-                    const vOf = it => monthly ? it.r.final / 2 : it.r.final;
-                    const sorted = [...priced].sort((a, b) => vOf(a) - vOf(b));
-                    const cheapest = sorted[0], second = sorted[1];
-                    const diff = vOf(second) - vOf(cheapest);
+                const priced = P.filter(p => p.precioCaja != null);
+                if (priced.length === P.length && priced.length >= 2) {
+                    const minMes = Math.min(...priced.map(p => p.costoMes));
+                    const maxMes = Math.max(...priced.map(p => p.costoMes));
+                    const minCaja = Math.min(...priced.map(p => p.precioCaja));
+                    const maxCaja = Math.max(...priced.map(p => p.precioCaja));
+                    const masBaratoMes = priced.reduce((min, p) => p.costoMes < min.costoMes ? p : min, priced[0]);
+                    const masBaratoCaja = priced.reduce((min, p) => p.precioCaja < min.precioCaja ? p : min, priced[0]);
                     lines.push('');
-                    lines.push(diff === 0
-                        ? `Hay empate en el más barato${monthly ? ' (por mes)' : ''}.`
-                        : `${cheapest.label} ${shortDose(cheapest.dose)} es el más barato — ${formatCurrency(diff)} (${(diff / vOf(second) * 100).toFixed(0)}%) menos que ${second.label} ${shortDose(second.dose)}${monthly ? ' por mes' : ''}.`);
+                    if (minMes === maxMes && minCaja === maxCaja) {
+                        lines.push('Cuestan lo mismo.');
+                    } else if (P.length === 2) {
+                        if (masBaratoMes.id === masBaratoCaja.id) {
+                            const elOtro = priced.find(p => p.id !== masBaratoMes.id);
+                            const porcentaje = Math.round(((elOtro.costoMes - masBaratoMes.costoMes) / elOtro.costoMes) * 100);
+                            lines.push(`${masBaratoMes.nombre} es la opción más conveniente: menor precio por caja y ${porcentaje}% de ahorro por mes frente a ${elOtro.nombre}.`);
+                        } else {
+                            const porcentajeAhorro = Math.round(((masBaratoCaja.costoMes - masBaratoMes.costoMes) / masBaratoCaja.costoMes) * 100);
+                            lines.push(`${masBaratoCaja.nombre} tiene el menor precio por caja, pero ${masBaratoMes.nombre} es ${porcentajeAhorro}% más económico por mes al rendir 2 meses.`);
+                        }
+                    } else {
+                        if (masBaratoMes.id === masBaratoCaja.id) {
+                            lines.push(`${masBaratoMes.nombre} lidera: el más económico por caja (${money(masBaratoCaja.precioCaja)}) y por mes (${money(masBaratoMes.costoMes)}).`);
+                        } else {
+                            const masCaroMes = priced.reduce((max, p) => p.costoMes > max.costoMes ? p : max, priced[0]);
+                            const ahorroMaximo = Math.round(((masCaroMes.costoMes - masBaratoMes.costoMes) / masCaroMes.costoMes) * 100);
+                            lines.push(`Menor costo mensual: ${masBaratoMes.nombre} (${money(masBaratoMes.costoMes)}, ahorra ${ahorroMaximo}% vs el máximo). Menor precio por caja: ${masBaratoCaja.nombre} (${money(masBaratoCaja.precioCaja)}).`);
+                        }
+                    }
                 }
                 lines.push('', `Compará el tuyo: ${window.location.href}`);
                 return lines.join('\n');
