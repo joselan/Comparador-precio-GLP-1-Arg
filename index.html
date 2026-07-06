@@ -915,7 +915,7 @@ function App() {
         } else {
           const masCaroCaja = priced.reduce((max, p) => p.precioCaja > max.precioCaja ? p : max, priced[0]);
           const ahorro = Math.round((masCaroCaja.precioCaja - masBaratoCaja.precioCaja) / masCaroCaja.precioCaja * 100);
-          lines.push(`${masBaratoCaja.nombre} es el más económico por caja (${money(masBaratoCaja.precioCaja)}, hasta ${ahorro}% menos que el más caro).`);
+          lines.push(`${masBaratoCaja.nombre} es el más económico por caja (${money(masBaratoCaja.precioCaja)}, hasta ${ahorro}% menos que ${masCaroCaja.nombre}).`);
         }
       } else {
         const minMes = Math.min(...priced.map(p => p.costoMes));
@@ -1600,7 +1600,7 @@ function App() {
         if (productos.length === 2) {
           return React.createElement(React.Fragment, null, b(masBaratoCaja.nombre), " es m\xE1s econ\xF3mico por caja: ", f(masBaratoCaja.precioCaja), " vs ", f(masCaroCaja.precioCaja), " (", b(`${ahorro}% menos`), ").");
         }
-        return React.createElement(React.Fragment, null, b(masBaratoCaja.nombre), " tiene el menor precio por caja (", f(masBaratoCaja.precioCaja), "), hasta un ", b(`${ahorro}% más barato`), " que el m\xE1s caro.");
+        return React.createElement(React.Fragment, null, b(masBaratoCaja.nombre), " tiene el menor precio por caja (", f(masBaratoCaja.precioCaja), "), hasta un ", b(`${ahorro}% más barato`), " que ", masCaroCaja.nombre, ".");
       }
       if (productos.length === 2) {
         if (masBaratoMes.id === masBaratoCaja.id) {
@@ -1630,7 +1630,7 @@ function App() {
       tone: "slate"
     }, "Dto. ", ooss, "%"), it.r && it.r.pspPerc > 0 && React.createElement(Pill, {
       tone: "blue"
-    }, "PSP"), it.canSplit && React.createElement(Pill, {
+    }, "PSP"), mensual && it.canSplit && React.createElement(Pill, {
       tone: "green"
     }, "Rinde 2m"), it.r && it.r.recetarioPerc > 0 && React.createElement(Pill, {
       tone: "blue"
@@ -1638,16 +1638,19 @@ function App() {
     const dash = React.createElement("span", {
       className: "text-slate-300 dark:text-slate-600"
     }, "\u2014");
-    const infoRow = (label, cells) => React.createElement("div", {
-      className: "py-2 border-b border-slate-100 dark:border-slate-700/40"
-    }, React.createElement("div", {
-      className: "text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mb-1"
-    }, label), React.createElement("div", {
-      className: `grid ${gridCls}`
-    }, cells.map((c, i) => React.createElement("div", {
-      key: i,
-      className: `px-1.5 text-center text-[12px] sm:text-sm font-medium tabular-nums text-slate-600 dark:text-slate-300 ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`
-    }, c))));
+    const infoRow = (label, cells) => {
+      if (cells.every(c => c == null)) return null;
+      return React.createElement("div", {
+        className: "py-2 border-b border-slate-100 dark:border-slate-700/40"
+      }, React.createElement("div", {
+        className: "text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mb-1"
+      }, label), React.createElement("div", {
+        className: `grid ${gridCls}`
+      }, cells.map((c, i) => React.createElement("div", {
+        key: i,
+        className: `px-1.5 text-center text-[12px] sm:text-sm font-medium tabular-nums text-slate-600 dark:text-slate-300 ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`
+      }, c == null ? dash : c))));
+    };
     return React.createElement("div", {
       className: "fixed inset-0 z-[150] flex items-end sm:items-center justify-center"
     }, React.createElement("div", {
@@ -1722,10 +1725,8 @@ function App() {
         className: `px-1 text-center tabular-nums font-semibold ${cols === 3 ? 'text-[11px]' : 'text-sm'} ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''} ${win ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`
       }, p.precioCaja == null ? 'Sin precio' : money(p.precioCaja));
     }))), React.createElement("div", {
-      className: "text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mt-3 mb-1"
-    }, "Desglose"), infoRow('PVP (precio lista)', P.map(p => p.it.r ? money(p.it.r.pvp) : dash)), infoRow(`Dto. extra${ooss > 0 ? ` (${ooss}%)` : ''}`, P.map(p => ooss > 0 && p.it.r ? '- ' + money(p.it.r.oossAmt) : dash)), infoRow('Descuento PSP', P.map(p => p.it.r && p.it.r.pspPerc > 0 ? `- ${money(p.it.r.pspAmt)} (${(p.it.r.pspPerc * 100).toFixed(0)}%)` : dash)), infoRow('Recetario Solidario', P.map(p => p.it.r && p.it.r.recAmt > 0 ? '- ' + money(p.it.r.recAmt) : dash)), infoRow('Ahorro vs PVP', P.map(p => p.it.r ? `${money(p.it.r.pvp - p.it.r.final)} (${((p.it.r.pvp - p.it.r.final) / p.it.r.pvp * 100).toFixed(0)}%)` : dash)), React.createElement("div", {
-      className: "text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mt-3 mb-1"
-    }, "Ficha"), infoRow('Laboratorio', P.map(p => p.it.lab)), React.createElement("button", {
+      className: "mt-3"
+    }, infoRow('PVP (precio lista)', P.map(p => p.it.r ? money(p.it.r.pvp) : null)), infoRow(`Dto. extra${ooss > 0 ? ` (${ooss}%)` : ''}`, P.map(p => ooss > 0 && p.it.r ? '- ' + money(p.it.r.oossAmt) : null)), infoRow('Descuento PSP', P.map(p => p.it.r && p.it.r.pspPerc > 0 ? `- ${money(p.it.r.pspAmt)} (${(p.it.r.pspPerc * 100).toFixed(0)}%)` : null)), infoRow('Recetario Solidario', P.map(p => p.it.r && p.it.r.recAmt > 0 ? '- ' + money(p.it.r.recAmt) : null)), infoRow('Ahorro vs PVP', P.map(p => p.it.r ? `${money(p.it.r.pvp - p.it.r.final)} (${((p.it.r.pvp - p.it.r.final) / p.it.r.pvp * 100).toFixed(0)}%)` : null))), React.createElement("button", {
       onClick: () => shareCompare(items),
       className: "w-full mt-5 flex items-center justify-center gap-2 py-3 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold active:scale-[0.98] transition shadow-lg"
     }, React.createElement(Icons.Share, null), " Compartir comparaci\xF3n"))));
