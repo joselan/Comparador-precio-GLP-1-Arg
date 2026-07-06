@@ -953,52 +953,77 @@
                         const items = selectedItems;
                         const cols = items.length;
                         const gridCls = cols === 3 ? 'grid-cols-3' : 'grid-cols-2';
-                        const money = cols === 3 ? formatCompact : formatCurrency; // sin centavos con 3 columnas
-                        const priceSize = cols === 3 ? 'text-sm sm:text-base' : 'text-lg sm:text-xl';
-                        const cellSize = cols === 3 ? 'text-[12px] sm:text-sm' : 'text-sm';
+                        const money = formatCompact; // sin centavos: comparación más limpia y escaneable
 
-                        const priced = items.filter(it => it.r);
-                        const monthly = isMonthly && items.every(it => it.canSplit);
-                        const vOf = it => monthly ? it.r.final / 2 : it.r.final;
-                        let cheapest = null, second = null, diff = 0, diffPct = 0;
-                        if (priced.length >= 2) {
-                            const sorted = [...priced].sort((a, b) => vOf(a) - vOf(b));
-                            cheapest = sorted[0]; second = sorted[1];
-                            diff = vOf(second) - vOf(cheapest);
-                            diffPct = vOf(second) ? diff / vOf(second) * 100 : 0;
-                        }
-                        const missing = items.filter(it => !it.r);
+                        // Modelo por producto. En un tratamiento crónico el COSTO MENSUAL manda:
+                        // los que rinden 2 meses valen caja/2 por mes; los que rinden 1 mes, su
+                        // propia caja. Así siempre hay valores mensuales reales y comparables.
+                        const P = items.map(it => ({
+                            it,
+                            id: it.key,
+                            nombre: `${it.label} ${shortDose(it.dose)}`,
+                            precioCaja: it.r ? it.r.final : null,
+                            costoMes: it.r ? (it.canSplit ? it.r.final / 2 : it.r.final) : null,
+                        }));
+                        const priced = P.filter(p => p.precioCaja != null);
+                        const missing = P.filter(p => p.precioCaja == null);
+                        const minCaja = priced.length ? Math.min(...priced.map(p => p.precioCaja)) : null;
+                        const maxCaja = priced.length ? Math.max(...priced.map(p => p.precioCaja)) : null;
+                        const minMes = priced.length ? Math.min(...priced.map(p => p.costoMes)) : null;
+                        const maxMes = priced.length ? Math.max(...priced.map(p => p.costoMes)) : null;
 
-                        // Fila de métrica: rótulo centrado + N columnas. `nums` (array) resalta
-                        // en verde el/los mejores (menor precio, o mayor ahorro con higherBetter).
-                        const metric = (label, strs, nums, opts) => {
-                            opts = opts || {};
-                            let best = null;
-                            const valid = (nums || []).filter(n => n != null);
-                            if (valid.length >= 2 && !valid.every(v => v === valid[0])) {
-                                best = opts.higherBetter ? Math.max(...valid) : Math.min(...valid);
+                        // (1) Texto del banner verde: lógica condicional dinámica para 2 y 3 productos.
+                        const b = (s) => <strong className="font-black">{s}</strong>;
+                        const generarTextoBanner = (productos) => {
+                            if (!productos || productos.length < 2) return null;
+                            const masBaratoMes = productos.reduce((min, p) => p.costoMes < min.costoMes ? p : min, productos[0]);
+                            const masBaratoCaja = productos.reduce((min, p) => p.precioCaja < min.precioCaja ? p : min, productos[0]);
+                            const f = money;
+                            if (productos.length === 2) {
+                                if (masBaratoMes.id === masBaratoCaja.id) {
+                                    const elOtro = productos.find(p => p.id !== masBaratoMes.id);
+                                    const porcentaje = Math.round(((elOtro.costoMes - masBaratoMes.costoMes) / elOtro.costoMes) * 100);
+                                    return <>{b(masBaratoMes.nombre)} es la opción más conveniente: tiene el menor precio por caja y te permite ahorrar un {b(`${porcentaje}% por mes`)} frente a {elOtro.nombre}.</>;
+                                }
+                                const porcentajeAhorro = Math.round(((masBaratoCaja.costoMes - masBaratoMes.costoMes) / masBaratoCaja.costoMes) * 100);
+                                return <>{b(masBaratoCaja.nombre)} tiene el menor precio por caja, pero {b(masBaratoMes.nombre)} resulta un {b(`${porcentajeAhorro}% más económico por mes`)} al rendir 2 meses.</>;
                             }
-                            const size = opts.big ? priceSize : cellSize;
-                            return (
-                                <div className={`py-2.5 ${opts.big ? 'bg-slate-50 dark:bg-slate-900/40 rounded-2xl my-1' : ''}`}>
-                                    <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mb-1">{label}</div>
-                                    <div className={`grid ${gridCls} items-center`}>
-                                        {strs.map((s, i) => {
-                                            const win = best != null && nums && nums[i] === best;
-                                            return <div key={i} className={`px-1.5 text-center font-bold tabular-nums ${size} ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''} ${win ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-200'}`}>{s}</div>;
-                                        })}
-                                    </div>
-                                </div>
-                            );
+                            // 3 productos
+                            if (masBaratoMes.id === masBaratoCaja.id) {
+                                return <>{b(masBaratoMes.nombre)} lidera la comparativa siendo el más económico tanto por caja ({f(masBaratoMes.precioCaja)}) como en su costo mensual ({f(masBaratoMes.costoMes)}).</>;
+                            }
+                            const masCaroMes = productos.reduce((max, p) => p.costoMes > max.costoMes ? p : max, productos[0]);
+                            const ahorroMaximo = Math.round(((masCaroMes.costoMes - masBaratoMes.costoMes) / masCaroMes.costoMes) * 100);
+                            return <>Menor costo mensual: {b(masBaratoMes.nombre)} ({f(masBaratoMes.costoMes)} — ahorra un {ahorroMaximo}% vs el máximo). Menor precio por caja: {b(masBaratoCaja.nombre)} ({f(masBaratoCaja.precioCaja)}).</>;
                         };
-                        // Valor a mostrar por ítem
-                        const finalStr = it => it.r ? money(it.r.final) : 'Sin precio';
-                        const monthStr = it => it.canSplit ? (it.r ? money(it.r.final / 2) : 'Sin precio') : 'No se divide';
-                        const pvpStr = it => it.r ? money(it.r.pvp) : '—';
-                        const oossStr = it => (ooss > 0 && it.r) ? '- ' + money(it.r.oossAmt) : '—';
-                        const pspStr = it => !it.hasPsp ? 'No tiene' : (usePsp && it.r ? `- ${money(it.r.pspAmt)} (${(it.r.pspPerc * 100).toFixed(0)}%)` : 'No aplicado');
-                        const recStr = it => (it.r && it.r.recAmt > 0) ? '- ' + money(it.r.recAmt) : '—';
-                        const saveStr = it => it.r ? `${money(it.r.pvp - it.r.final)} (${((it.r.pvp - it.r.final) / it.r.pvp * 100).toFixed(0)}%)` : '—';
+
+                        // (5) Pills de beneficios: se renderizan DENTRO de la columna del producto
+                        // al que aplican (no como filtros globales). Se derivan del cálculo real.
+                        const Pill = ({ tone, children }) => (
+                            <span className={`text-[9px] leading-none font-bold px-1.5 py-1 rounded-full whitespace-nowrap ${tone === 'blue' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : tone === 'green' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>{children}</span>
+                        );
+                        const badgesFor = (it) => (
+                            <div className="flex flex-wrap justify-center gap-1 mt-1.5">
+                                {ooss > 0 && it.r && <Pill tone="slate">Dto. {ooss}%</Pill>}
+                                {it.r && it.r.pspPerc > 0 && <Pill tone="blue">PSP</Pill>}
+                                {it.canSplit && <Pill tone="green">Rinde 2m</Pill>}
+                                {it.r && it.r.recetarioPerc > 0 && <Pill tone="blue">Rx Sol.</Pill>}
+                            </div>
+                        );
+
+                        // (3) Guion largo tenue para "sin valor" en el desglose. (4) Cada fila con
+                        // borde inferior sutil para separar los datos en mobile. Sin verde acá.
+                        const dash = <span className="text-slate-300 dark:text-slate-600">—</span>;
+                        const infoRow = (label, cells) => (
+                            <div className="py-2 border-b border-slate-100 dark:border-slate-700/40">
+                                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mb-1">{label}</div>
+                                <div className={`grid ${gridCls}`}>
+                                    {cells.map((c, i) => (
+                                        <div key={i} className={`px-1.5 text-center text-[12px] sm:text-sm font-medium tabular-nums text-slate-600 dark:text-slate-300 ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`}>{c}</div>
+                                    ))}
+                                </div>
+                            </div>
+                        );
 
                         return (
                             <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center">
@@ -1009,7 +1034,7 @@
                                         <button onClick={() => setCompareOpen(false)} className="p-2 -m-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><Icons.Close /></button>
                                     </div>
                                     <div className="p-4 sm:p-5">
-                                        {/* Cabeceras de los productos */}
+                                        {/* Cabeceras: cada producto con SUS pills propias (5) */}
                                         <div className={`grid ${gridCls} mb-3`}>
                                             {items.map((it, idx) => (
                                                 <div key={it.key} className={`px-1.5 text-center ${idx > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`}>
@@ -1021,48 +1046,69 @@
                                                     <div className={`font-black text-slate-900 dark:text-white leading-tight ${cols === 3 ? 'text-[13px]' : ''}`}>{it.label}</div>
                                                     <div className={`text-slate-500 dark:text-slate-300 font-semibold ${cols === 3 ? 'text-[11px]' : 'text-xs'}`}>{shortDose(it.dose)}</div>
                                                     <div className="text-[11px] text-slate-400 leading-tight">{it.lab}</div>
+                                                    {badgesFor(it)}
                                                 </div>
                                             ))}
                                         </div>
 
-                                        {/* Chips de descuentos activos (contexto de los números) */}
-                                        <div className="flex flex-wrap justify-center gap-1.5 mb-3">
-                                            {ooss > 0 && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">Dto. extra {ooss}%</span>}
-                                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${usePsp ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-400 line-through'}`}>PSP</span>
-                                            {isMonthly && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">Rinde 2 meses</span>}
-                                            {recetario && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">Rx Solidario</span>}
-                                        </div>
-
-                                        {/* Banner del más barato */}
-                                        {priced.length >= 2 ? (
-                                            diff === 0 ? (
-                                                <div className="text-center text-sm font-bold py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 mb-2">Hay empate en el más barato{monthly ? ' por mes' : ''} 🤝</div>
-                                            ) : (
-                                                <div className="text-center py-3 px-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-100 dark:border-emerald-900/40 mb-2">
-                                                    <span className="font-black text-emerald-700 dark:text-emerald-300">{cheapest.label} {shortDose(cheapest.dose)}</span>
-                                                    <span className="text-emerald-700 dark:text-emerald-300 text-sm"> es el más barato — </span>
-                                                    <span className="font-black text-emerald-700 dark:text-emerald-300">{money(diff)}</span>
-                                                    <span className="text-emerald-700 dark:text-emerald-300 text-sm"> ({diffPct.toFixed(0)}%) menos que {second.label} {shortDose(second.dose)}{monthly ? ' por mes' : ''}</span>
-                                                </div>
-                                            )
+                                        {/* (1) Banner verde dinámico según 2 o 3 productos */}
+                                        {missing.length > 0 ? (
+                                            <div className="text-center text-sm font-semibold py-3 px-4 rounded-2xl bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 mb-3">Falta el PVP de {missing.map(p => p.nombre).join(', ')} — no se puede comparar el precio todavía.</div>
+                                        ) : (minMes === maxMes && minCaja === maxCaja) ? (
+                                            <div className="text-center text-sm font-bold py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 mb-3">Cuestan lo mismo 🤝</div>
                                         ) : (
-                                            <div className="text-center text-sm font-semibold py-3 px-4 rounded-2xl bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 mb-2">Falta el PVP de {missing.map(it => `${it.label} ${shortDose(it.dose)}`).join(', ')} — no se puede comparar el precio todavía.</div>
+                                            <div className="py-3 px-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-100 dark:border-emerald-900/40 mb-3 text-center text-[13px] sm:text-sm leading-relaxed text-emerald-800 dark:text-emerald-200">
+                                                {generarTextoBanner(P)}
+                                            </div>
                                         )}
 
-                                        {/* Precio destacado + costo por mes */}
-                                        {metric('Precio final por caja', items.map(finalStr), items.map(it => it.r ? it.r.final : null), { big: true })}
-                                        {metric('Costo por mes (rinde 2)', items.map(monthStr), items.map(it => (it.canSplit && it.r) ? it.r.final / 2 : null))}
+                                        {/* (2) COSTO POR MES: métrica principal, grande y destacada.
+                                            (3) los que rinden 1 mes muestran su caja real con la aclaración.
+                                            (4) verde SOLO en el menor de esta fila. */}
+                                        <div className="pt-1 pb-1">
+                                            <div className="text-[11px] uppercase tracking-wider font-black text-slate-500 dark:text-slate-300 text-center mb-2">Costo por mes</div>
+                                            <div className={`grid ${gridCls}`}>
+                                                {P.map((p, i) => {
+                                                    const win = p.costoMes != null && p.costoMes === minMes;
+                                                    return (
+                                                        <div key={p.id} className={`px-1 text-center ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`}>
+                                                            <div className={`font-black tabular-nums leading-none ${cols === 3 ? 'text-base sm:text-lg' : 'text-2xl sm:text-3xl'} ${win ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'}`}>
+                                                                {p.costoMes == null ? <span className="text-sm font-bold text-slate-400">Sin precio</span> : money(p.costoMes)}
+                                                            </div>
+                                                            {p.costoMes != null && !p.it.canSplit && (
+                                                                <div className="text-[10px] font-semibold text-slate-400 mt-1">Rinde 1 mes</div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
 
-                                        <div className="text-[11px] uppercase tracking-wider font-bold text-slate-400 text-center mt-4 mb-1 border-t border-slate-100 dark:border-slate-700 pt-3">Desglose</div>
-                                        {metric('PVP (precio lista)', items.map(pvpStr), items.map(it => it.r ? it.r.pvp : null))}
-                                        {metric(`Dto. extra${ooss > 0 ? ` (${ooss}%)` : ''}`, items.map(oossStr), null)}
-                                        {metric('Descuento PSP', items.map(pspStr), null)}
-                                        {metric('Recetario Solidario', items.map(recStr), null)}
-                                        {metric('Ahorro vs PVP', items.map(saveStr), items.map(it => it.r ? it.r.pvp - it.r.final : null), { higherBetter: true })}
+                                        {/* Precio por caja: secundario (más chico y tenue). (4) verde solo el menor. */}
+                                        <div className="pt-1 pb-2 mb-1 border-b border-slate-100 dark:border-slate-700/50">
+                                            <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 text-center mb-1">Precio por caja</div>
+                                            <div className={`grid ${gridCls}`}>
+                                                {P.map((p, i) => {
+                                                    const win = p.precioCaja != null && p.precioCaja === minCaja;
+                                                    return (
+                                                        <div key={p.id} className={`px-1 text-center tabular-nums font-semibold ${cols === 3 ? 'text-[11px]' : 'text-sm'} ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''} ${win ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                                                            {p.precioCaja == null ? 'Sin precio' : money(p.precioCaja)}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
 
-                                        <div className="text-[11px] uppercase tracking-wider font-bold text-slate-400 text-center mt-4 mb-1 border-t border-slate-100 dark:border-slate-700 pt-3">Ficha</div>
-                                        {metric('Laboratorio', items.map(it => it.lab), null)}
-                                        {metric('Rinde 2 meses', items.map(it => it.canSplit ? 'Sí' : 'No'), null)}
+                                        {/* (3)(4) Desglose: sin verde, con guiones tenues y bordes sutiles */}
+                                        <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mt-3 mb-1">Desglose</div>
+                                        {infoRow('PVP (precio lista)', P.map(p => p.it.r ? money(p.it.r.pvp) : dash))}
+                                        {infoRow(`Dto. extra${ooss > 0 ? ` (${ooss}%)` : ''}`, P.map(p => (ooss > 0 && p.it.r) ? '- ' + money(p.it.r.oossAmt) : dash))}
+                                        {infoRow('Descuento PSP', P.map(p => (p.it.r && p.it.r.pspPerc > 0) ? `- ${money(p.it.r.pspAmt)} (${(p.it.r.pspPerc * 100).toFixed(0)}%)` : dash))}
+                                        {infoRow('Recetario Solidario', P.map(p => (p.it.r && p.it.r.recAmt > 0) ? '- ' + money(p.it.r.recAmt) : dash))}
+                                        {infoRow('Ahorro vs PVP', P.map(p => p.it.r ? `${money(p.it.r.pvp - p.it.r.final)} (${((p.it.r.pvp - p.it.r.final) / p.it.r.pvp * 100).toFixed(0)}%)` : dash))}
+
+                                        <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 text-center mt-3 mb-1">Ficha</div>
+                                        {infoRow('Laboratorio', P.map(p => p.it.lab))}
 
                                         <button onClick={() => shareCompare(items)} className="w-full mt-5 flex items-center justify-center gap-2 py-3 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold active:scale-[0.98] transition shadow-lg">
                                             <Icons.Share /> Compartir comparación
