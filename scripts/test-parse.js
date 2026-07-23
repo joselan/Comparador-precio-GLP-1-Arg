@@ -26,6 +26,12 @@ check('extract "MOUNJARO 7,5 mg/0,6 ml x 3 ml"', extractMgValues('MOUNJARO 7,5 m
 check('extract "MOUNJARO 10 mg KwikPen"', extractMgValues('MOUNJARO 10 mg KwikPen'), [10]);
 check('extract "MOUNJARO 12,5 mg"', extractMgValues('MOUNJARO 12,5 mg'), [12.5]);
 check('extract "OZEMPIC 0,25 mg y 0,5 mg x 1,5 ml + 6 ag"', extractMgValues('OZEMPIC 0,25 mg y 0,5 mg x 1,5 ml + 6 ag'), [0.25, 0.5]);
+// Formato REAL de alfabeta para la presentación combinada: un solo "mg" para las
+// dos dosis, separadas por espacio (así venía "sin match" el 23/7).
+check('extract "0.25 0.5mg/dosis x1.5ml" (alfabeta)', extractMgValues('0.25 0.5mg/dosis x1.5ml'), [0.25, 0.5]);
+check('extract "0,25/0,5 mg" (variante con slash)', extractMgValues('0,25/0,5 mg'), [0.25, 0.5]);
+check('extract "1mg/dosis x 3ml" (Ozempic 1mg alfabeta)', extractMgValues('1mg/dosis x 3ml'), [1]);
+check('extract "10 mg/0.6 mLx1 KwikPen" (no toma 0.6 de mL)', extractMgValues('10 mg/0.6 mLx1 KwikPen'), [10]);
 check('extract "WEGOVY 2,4 mg/0,75 ml"', extractMgValues('WEGOVY 2,4 mg/0,75 ml'), [2.4]);
 check('extract sin mg "DUTIDE lap x 4"', extractMgValues('DUTIDE lap x 4'), []);
 check('extract no confunde mcg', extractMgValues('ALGO 500 mcg x 1'), []);

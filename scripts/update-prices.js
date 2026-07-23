@@ -309,13 +309,19 @@ function parsePrice(text) {
 }
 
 // Extrae todos los valores "X mg" de un texto ("2,5 mg/0,6 ml" → [2.5]).
-// Los "ml", "mcg" y demás unidades quedan afuera.
+// Los "ml", "mcg" y demás unidades quedan afuera. Además captura varios números
+// que comparten un mismo "mg" final, separados por espacios o "/": alfabeta
+// escribe la presentación combinada de Ozempic como "0.25 0.5mg" (un solo "mg"
+// para ambas dosis) y sin esto sólo se leía 0,5 → la fila quedaba "sin match".
 function extractMgValues(text) {
   const values = [];
-  const re = /(\d+(?:[.,]\d+)?)\s*mg\b/gi;
+  const re = /(\d+(?:[.,]\d+)?(?:[\s/]+\d+(?:[.,]\d+)?)*)\s*mg\b/gi;
   let m;
   while ((m = re.exec(text)) !== null) {
-    values.push(parseFloat(m[1].replace(',', '.')));
+    m[1].split(/[\s/]+/).forEach(n => {
+      const v = parseFloat(n.replace(',', '.'));
+      if (!Number.isNaN(v)) values.push(v);
+    });
   }
   return values;
 }
