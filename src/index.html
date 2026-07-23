@@ -793,7 +793,9 @@
                                             <Icons.Close /> Limpiar marcados ({selectedCount})
                                         </button>
                                     )}
-                                    {/* "Historial de precios" oculto hasta que los datos se vean bien. */}
+                                    <button onClick={() => { setShowHistory(true); setOptionsOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">
+                                        <Icons.Chart /> Historial de precios
+                                    </button>
                                     <button onClick={() => { setTut(true); setOptionsOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">
                                         <Icons.Help /> Cómo funciona
                                     </button>
