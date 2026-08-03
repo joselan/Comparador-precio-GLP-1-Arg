@@ -687,15 +687,8 @@ const productImg = {
   Obetide: IMG + 'Obetide-025mg_120x75x90-1.png'
 };
 const imgFor = (label, dose) => doseImg[label + '|' + dose] || productImg[label] || null;
-const promoWegovy025Active = () => {
-  const now = new Date();
-  const start = new Date('2026-05-06T00:00:00-03:00');
-  const end = new Date('2026-08-01T00:00:00-03:00');
-  return now >= start && now < end;
-};
 const pspPercFor = (productName, item, doseName, activePsp) => {
   if (!activePsp || !item || !item.hasPsp) return 0;
-  if (productName === 'Wegovy' && shortDose(doseName) === '0.25mg' && promoWegovy025Active()) return 0.60;
   if (item.pspType === 'fixed' && typeof item.pspValue === 'number') return item.pspValue;
   return 0.30;
 };
