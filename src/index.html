@@ -423,16 +423,23 @@
                 const lines = ['💊 Comparación GLP-1/GIP Argentina', ''];
                 P.forEach(p => {
                     lines.push(`▪ ${p.nombre} — ${p.it.lab}`);
-                    if (p.it.r) {
-                        if (mensual) {
-                            lines.push(`   Costo por mes: ${money(p.costoMes)} (${p.it.canSplit ? 'rinde 2 meses' : 'rinde 1 mes'})`);
-                        }
-                        lines.push(`   Precio por caja: ${money(p.precioCaja)}`);
-                        const sv = p.it.r.pvp - p.it.r.final;
-                        if (sv > 0) lines.push(`   Ahorro vs PVP: ${money(sv)} (${(sv / p.it.r.pvp * 100).toFixed(0)}%)`);
+                    const r = p.it.r;
+                    if (!r) { lines.push('   Sin precio publicado'); return; }
+                    // Cadena de descuentos que se aplican al PVP hasta el precio final,
+                    // sólo los que realmente aplican a este producto.
+                    const desc = [];
+                    if (ooss > 0 && r.oossAmt > 0) desc.push(`   • OOSS/Prepaga (${ooss}%): -${money(r.oossAmt)}`);
+                    if (r.pspPerc > 0) desc.push(`   • PSP ${p.it.psp} (${(r.pspPerc * 100).toFixed(0)}%): -${money(r.pspAmt)}`);
+                    if (r.recetarioPerc > 0) desc.push(`   • Recetario Solidario (${(r.recetarioPerc * 100).toFixed(0)}%): -${money(r.recAmt)}`);
+                    if (desc.length) {
+                        lines.push(`   PVP: ${money(r.pvp)}`);
+                        lines.push(...desc);
+                        const off = Math.round((r.pvp - r.final) / r.pvp * 100);
+                        lines.push(`   Precio final: ${money(p.precioCaja)} (-${off}% vs PVP)`);
                     } else {
-                        lines.push('   Sin precio publicado');
+                        lines.push(`   Precio de caja: ${money(p.precioCaja)} (sin descuentos)`);
                     }
+                    if (mensual) lines.push(`   Costo por mes: ${money(p.costoMes)} (${p.it.canSplit ? 'rinde 2 meses' : 'rinde 1 mes'})`);
                 });
                 const priced = P.filter(p => p.precioCaja != null);
                 if (priced.length === P.length && priced.length >= 2) {
