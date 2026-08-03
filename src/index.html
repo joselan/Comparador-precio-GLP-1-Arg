@@ -190,20 +190,12 @@
         const imgFor = (label, dose) => doseImg[label + '|' + dose] || productImg[label] || null;
 
         // --- Descuentos PSP (Programas de Soporte a Pacientes) ---
-        // Novo a la Par: 30% fijo sobre el saldo tras OOSS para Ozempic y Wegovy.
-        //   Excepción: Wegovy 0.25 mg = 60% del 06/05/2026 al 31/07/2026 inclusive,
-        //   luego vuelve al 30% general (fuente: Términos y Condiciones, abril 2026).
+        // Novo a la Par: 30% fijo sobre el saldo tras OOSS para Ozempic y Wegovy,
+        // en TODAS las presentaciones (incluida la dosis de inicio de Wegovy; la
+        // promo del 60% para Wegovy 0.25 mg finalizó el 31/07/2026).
         // Adium (Con Voz): 30% fijo. Elea: sin PSP.
-        const promoWegovy025Active = () => {
-            const now = new Date();
-            const start = new Date('2026-05-06T00:00:00-03:00');
-            const end = new Date('2026-08-01T00:00:00-03:00'); // 31/07/2026 inclusive
-            return now >= start && now < end;
-        };
         const pspPercFor = (productName, item, doseName, activePsp) => {
             if (!activePsp || !item || !item.hasPsp) return 0;
-            // Promo Wegovy 0.25 mg
-            if (productName === 'Wegovy' && shortDose(doseName) === '0.25mg' && promoWegovy025Active()) return 0.60;
             // PSP fijo declarado (ej. Con Voz de Adium)
             if (item.pspType === 'fixed' && typeof item.pspValue === 'number') return item.pspValue;
             // Novo a la Par (y cualquier otro con PSP): 30% fijo
@@ -342,7 +334,7 @@
 
             // Orden de cálculo (según Novo a la Par y la regla original):
             // 1) OOSS/Prepaga (Dto. extra) sobre el PVP → "saldo a abonar en mostrador"
-            // 2) PSP (30%/60%) sobre ESE saldo
+            // 2) PSP (30%) sobre ESE saldo
             // 3) Recetario Solidario (20% Novo) sobre el saldo ya con PSP
             // El total final es el mismo sin importar el orden (descuentos
             // multiplicativos), pero así el desglose refleja lo que hace el laboratorio.
