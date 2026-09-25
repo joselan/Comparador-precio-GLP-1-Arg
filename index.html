@@ -561,6 +561,9 @@ const defaultDb = {
     }, {
       name: '2.4mg (3ml + 4 ag)',
       pvp: 757846.07
+    }, {
+      name: '7.2mg (3ml + 4 ag)',
+      pvp: null
     }]
   },
   Dutide: {
@@ -717,6 +720,31 @@ const mergeDb = (base, remote) => {
   });
   return merged;
 };
+const withDerived = db => {
+  const w = db.Wegovy;
+  if (!w || !w.doses) return db;
+  const d24 = w.doses.find(d => d.name.startsWith('2.4mg'));
+  if (!d24 || typeof d24.pvp !== 'number') return db;
+  let changed = false;
+  const doses = w.doses.map(d => {
+    if (d.name.startsWith('7.2mg') && d.pvp == null) {
+      changed = true;
+      return {
+        ...d,
+        pvp: d24.pvp * 3,
+        estimated: true
+      };
+    }
+    return d;
+  });
+  return changed ? {
+    ...db,
+    Wegovy: {
+      ...w,
+      doses
+    }
+  } : db;
+};
 function useBackToClose(open, onClose) {
   useEffect(() => {
     if (!open) return;
@@ -732,7 +760,7 @@ function useBackToClose(open, onClose) {
   }, [open]);
 }
 function App() {
-  const [db, setDb] = useState(defaultDb);
+  const [db, setDb] = useState(() => withDerived(defaultDb));
   const [loadingDb, setLoadingDb] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [med, setMed] = useState('Mounjaro');
@@ -761,17 +789,17 @@ function App() {
     const unsubscribe = firestore.collection('config').doc('prices').onSnapshot(doc => {
       clearTimeout(fallback);
       if (doc.exists && doc.data().db) {
-        setDb(mergeDb(defaultDb, doc.data().db));
+        setDb(withDerived(mergeDb(defaultDb, doc.data().db)));
         const lu = doc.data().lastUpdated;
         setLastUpdated(lu && lu.toDate ? lu.toDate() : null);
       } else {
-        setDb(defaultDb);
+        setDb(withDerived(defaultDb));
       }
       setLoadingDb(false);
     }, error => {
       clearTimeout(fallback);
       console.error("Error obteniendo datos de Firebase:", error);
-      setDb(defaultDb);
+      setDb(withDerived(defaultDb));
       setLoadingDb(false);
     });
     return () => {
