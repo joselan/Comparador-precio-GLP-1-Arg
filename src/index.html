@@ -179,6 +179,7 @@
             'Wegovy|1mg (3ml + 4 ag)':      IMG + 'WEGOVY_1mg-1000x1000.webp',
             'Wegovy|1.7mg (3ml + 4 ag)':    IMG + 'WEGOVY_1.7mg-1000x1000.webp',
             'Wegovy|2.4mg (3ml + 4 ag)':    IMG + 'WEGOVY_2.4mg-1000x1000.png',
+            'Wegovy|7.2mg (3ml + 4 ag)':    IMG + 'WEGOVY_2.4mg-1000x1000.png', // misma foto que la 2.4 mg (lleva sello ×3)
         };
         const productImg = {
             Mounjaro: IMG + 'farmaciasjulios_panama-mounjaro-kwikpen-5mg-0-6ml-solucion-inyectable-de-tirzepatida.jpg',
@@ -188,6 +189,14 @@
             Obetide:  IMG + 'Obetide-025mg_120x75x90-1.png',
         };
         const imgFor = (label, dose) => doseImg[label + '|' + dose] || productImg[label] || null;
+
+        // Wegovy 7.2 mg usa la misma foto que la 2.4 mg con un sello "×3" encima
+        // (su precio se estima como 3 lapiceras de la 2.4 mg). El sello se ubica en
+        // la esquina inferior derecha de la imagen; el contenedor debe ser relative.
+        const isTriple = (label, dose) => label === 'Wegovy' && shortDose(dose) === '7.2mg';
+        const X3Badge = () => (
+            <span className="absolute bottom-0 right-0 z-10 bg-blue-600 text-white font-black leading-none rounded-tl-md px-1 py-0.5 text-[9px] shadow-sm ring-1 ring-white dark:ring-slate-800">×3</span>
+        );
 
         // --- Descuentos PSP (Programas de Soporte a Pacientes) ---
         // Novo a la Par: 30% fijo sobre el saldo tras OOSS para Ozempic y Wegovy,
@@ -590,6 +599,7 @@
                             {imgFor(item.label, item.dose)
                                 ? <span className="w-11 h-11 rounded-xl bg-white border border-slate-200 dark:border-slate-600 flex items-center justify-center overflow-hidden p-0.5 shadow-sm"><img src={imgFor(item.label, item.dose)} alt={item.label} className="max-w-full max-h-full object-contain" loading="lazy" /></span>
                                 : <span className={`w-11 h-11 rounded-xl flex items-center justify-center text-white shadow-sm ${st.chip}`}><Glyph /></span>}
+                            {isTriple(item.label, item.dose) && <X3Badge />}
                             {/* Círculo de selección superpuesto en la esquina de la imagen.
                                 El botón tiene un área táctil grande (36px) con el círculo
                                 chico centrado, para poder tocarlo también un poco afuera. */}
@@ -889,10 +899,11 @@
                                 <div className="p-5 sm:p-6">
                                     <div className="flex justify-between items-start mb-4 gap-3">
                                         <div className="flex items-center gap-3 min-w-0">
-                                            <div className="w-20 h-20 bg-white rounded-2xl border border-slate-200 dark:border-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden p-1">
+                                            <div className="relative w-20 h-20 bg-white rounded-2xl border border-slate-200 dark:border-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden p-1">
                                                 {imgFor(med, activeDose.name)
                                                     ? <img src={imgFor(med, activeDose.name)} alt={med} className="max-w-full max-h-full object-contain" />
                                                     : <span className={`w-10 h-10 rounded-lg flex items-center justify-center text-white ${styleFor(current.color).chip}`}>{React.createElement(glyphFor(med))}</span>}
+                                                {isTriple(med, activeDose.name) && <X3Badge />}
                                             </div>
                                             <div className="min-w-0">
                                                 <h2 className="text-2xl font-black text-slate-900 dark:text-white truncate">{med}</h2>
@@ -1096,10 +1107,11 @@
                                         <div className={`grid ${gridCls} mb-3`}>
                                             {items.map((it, idx) => (
                                                 <div key={it.key} className={`px-1.5 text-center ${idx > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : ''}`}>
-                                                    <div className={`${cols === 3 ? 'w-12 h-12' : 'w-16 h-16'} mx-auto bg-white rounded-2xl border border-slate-200 dark:border-slate-600 flex items-center justify-center overflow-hidden p-1 mb-2`}>
+                                                    <div className={`relative ${cols === 3 ? 'w-12 h-12' : 'w-16 h-16'} mx-auto bg-white rounded-2xl border border-slate-200 dark:border-slate-600 flex items-center justify-center overflow-hidden p-1 mb-2`}>
                                                         {imgFor(it.label, it.dose)
                                                             ? <img src={imgFor(it.label, it.dose)} alt={it.label} className="max-w-full max-h-full object-contain" />
                                                             : <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-white ${styleFor(it.color).chip}`}>{React.createElement(glyphFor(it.label))}</span>}
+                                                        {isTriple(it.label, it.dose) && <X3Badge />}
                                                     </div>
                                                     <div className={`font-black text-slate-900 dark:text-white leading-tight ${cols === 3 ? 'text-[13px]' : ''}`}>{it.label}</div>
                                                     <div className={`text-slate-500 dark:text-slate-300 font-semibold ${cols === 3 ? 'text-[11px]' : 'text-xs'}`}>{shortDose(it.dose)}</div>
