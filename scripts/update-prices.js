@@ -120,8 +120,8 @@ const PRODUCT_META = {
   Mounjaro: { lab: 'Adium',        psp: 'Con Voz',      hasPsp: true,  pspType: 'fixed', pspValue: 0.30, canSplit: true,  color: 'bg-blue-600' },
   Ozempic:  { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'fixed', pspValue: 0.30, canSplit: true,  color: 'bg-teal-600' },
   Wegovy:   { lab: 'Novo Nordisk', psp: 'Novo a la Par', hasPsp: true, pspType: 'fixed', pspValue: 0.30, canSplit: true,  color: 'bg-teal-500' },
-  Dutide:   { lab: 'Elea',         psp: '-',            hasPsp: false, canSplit: false, color: 'bg-purple-600' },
-  Obetide:  { lab: 'Elea',         psp: '-',            hasPsp: false, canSplit: false, color: 'bg-purple-500' },
+  Dutide:   { lab: 'Elea',         psp: 'PICC',         hasPsp: true,  pspType: 'elea', canSplit: false, color: 'bg-purple-600' },
+  Obetide:  { lab: 'Elea',         psp: 'PICC',         hasPsp: true,  pspType: 'elea', canSplit: false, color: 'bg-purple-500' },
 };
 
 // --- Sync con la app "calc-precio-mounjaro-Argentina" (verificado en Actions) ---
@@ -271,11 +271,11 @@ function normalizeMeta(currentDb) {
     for (const [k, v] of Object.entries(meta)) {
       if (prod[k] !== v) { changes.push(`${name}.${k}: ${JSON.stringify(prod[k])} → ${JSON.stringify(v)}`); prod[k] = v; }
     }
-    // Productos sin PSP (Elea): no deben conservar pspType/pspValue viejos
-    if (!meta.hasPsp) {
-      for (const k of ['pspType', 'pspValue']) {
-        if (k in prod) { changes.push(`${name}.${k}: eliminado`); delete prod[k]; }
-      }
+    // Campos de PSP no declarados en el meta se eliminan: pspType/pspValue viejos
+    // en un producto que ya no los usa (ej. Elea pasó a PSP escalonado 'elea', que
+    // no lleva pspValue; o un producto sin PSP que arrastraba ambos).
+    for (const k of ['pspType', 'pspValue']) {
+      if (!(k in meta) && (k in prod)) { changes.push(`${name}.${k}: eliminado`); delete prod[k]; }
     }
   }
   return changes;

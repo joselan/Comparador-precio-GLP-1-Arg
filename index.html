@@ -568,8 +568,9 @@ const defaultDb = {
   },
   Dutide: {
     lab: 'Elea',
-    psp: '-',
-    hasPsp: false,
+    psp: 'PICC',
+    hasPsp: true,
+    pspType: 'elea',
     canSplit: false,
     color: 'bg-purple-600',
     doses: [{
@@ -585,8 +586,9 @@ const defaultDb = {
   },
   Obetide: {
     lab: 'Elea',
-    psp: '-',
-    hasPsp: false,
+    psp: 'PICC',
+    hasPsp: true,
+    pspType: 'elea',
     canSplit: false,
     color: 'bg-purple-500',
     doses: [{
@@ -697,6 +699,7 @@ const X3Badge = () => React.createElement("span", {
 }, "\xD73");
 const pspPercFor = (productName, item, doseName, activePsp) => {
   if (!activePsp || !item || !item.hasPsp) return 0;
+  if (item.pspType === 'elea') return shortDose(doseName) === '0.25mg' ? 0.40 : 0.20;
   if (item.pspType === 'fixed' && typeof item.pspValue === 'number') return item.pspValue;
   return 0.30;
 };
