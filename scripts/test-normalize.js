@@ -28,10 +28,12 @@ check('Ozempic pspValue queda 0.30', db.Ozempic.pspValue === 0.30);
 check('Wegovy pspType queda "fixed"', db.Wegovy.pspType === 'fixed');
 check('Wegovy pspValue queda 0.30', db.Wegovy.pspValue === 0.30);
 
-// Elea → sin campos de PSP
-check('Dutide pierde pspType (sin PSP)', !('pspType' in db.Dutide));
-check('Dutide pierde pspValue (sin PSP)', !('pspValue' in db.Dutide));
-check('Dutide sigue hasPsp:false', db.Dutide.hasPsp === false);
+// Elea → ahora tiene PICC (PSP escalonado 'elea'): se setea hasPsp/psp/pspType
+// y se limpia el pspValue viejo (el tipo 'elea' no lo usa).
+check('Dutide pasa a hasPsp:true', db.Dutide.hasPsp === true);
+check('Dutide psp = PICC', db.Dutide.psp === 'PICC');
+check('Dutide pspType = elea', db.Dutide.pspType === 'elea');
+check('Dutide pierde el pspValue viejo', !('pspValue' in db.Dutide));
 
 // Mounjaro ya estaba bien → sin tocar sus valores
 check('Mounjaro conserva pspType fixed / pspValue 0.30', db.Mounjaro.pspType === 'fixed' && db.Mounjaro.pspValue === 0.30);
