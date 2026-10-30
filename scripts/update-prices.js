@@ -46,8 +46,9 @@ const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 // Cuenta que ENVÍA los emails (la del App Password de Gmail).
 const ADMIN_EMAIL = 'joselanglois@gmail.com';
 // Destinatarios de las alertas. Se puede sobrescribir con ALERT_EMAILS (lista
-// separada por comas); por defecto van al Gmail del admin y a la casilla de Adium.
-const ALERT_RECIPIENTS = (process.env.ALERT_EMAILS || 'joselanglois@gmail.com, jlanglois@adium.com.ar')
+// separada por comas); por defecto van al Gmail del admin, a la casilla de Adium
+// y a la lista de difusión del Equipo Especial Diabetes de Adium.
+const ALERT_RECIPIENTS = (process.env.ALERT_EMAILS || 'joselanglois@gmail.com, jlanglois@adium.com.ar, Lista_EquipoEspecialDiabetes@adium.com.ar')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -400,6 +401,7 @@ function buildEmailHtml(changedMeds, newPrices, warnings) {
     }
   }
 
+  html += `<hr style="margin:16px 0"><p style="font-size:14px;color:#0f172a">Siempre podés ver y comparar los precios actualizados en la web:<br><a href="https://comparador-precio-glp-1-arg.vercel.app/" style="color:#1e40af;font-weight:bold">comparador-precio-glp-1-arg.vercel.app</a></p>`;
   html += `<hr><p style="color:#94a3b8;font-size:12px">Fuente: alfabeta.net · Comparador GLP-1 Argentina</p>`;
   return html;
 }
