@@ -45,6 +45,8 @@ const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-ch
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 // Cuenta que ENVÍA los emails (la del App Password de Gmail).
 const ADMIN_EMAIL = 'joselanglois@gmail.com';
+// Nombre visible del remitente en los mails de alerta de precios.
+const EMAIL_FROM_NAME = 'Comparador precios GLP-1/GIP Argentina';
 // Destinatarios de las alertas. En el "Para" visible va sólo el admin; el equipo
 // va en copia oculta (CCO/BCC) para que no se vean las direcciones entre sí ni
 // haya "responder a todos". La lista de difusión de Adium
@@ -460,7 +462,7 @@ async function sendTestEmail() {
   </div>`;
   try {
     await transporter.sendMail({
-      from: `"GLP-1 Comparador" <${ADMIN_EMAIL}>`,
+      from: `"${EMAIL_FROM_NAME}" <${ADMIN_EMAIL}>`,
       to: ALERT_TO.join(', '),
       bcc: ALERT_BCC.join(', '),
       subject: '✅ GLP-1 Comparador — email de prueba de alertas',
@@ -488,7 +490,7 @@ async function sendEmail(changedMeds, newPrices, warnings) {
   });
   try {
     await transporter.sendMail({
-      from: `"GLP-1 Comparador" <${ADMIN_EMAIL}>`,
+      from: `"${EMAIL_FROM_NAME}" <${ADMIN_EMAIL}>`,
       to: ALERT_TO.join(', '),
       bcc: ALERT_BCC.join(', '),
       subject,
