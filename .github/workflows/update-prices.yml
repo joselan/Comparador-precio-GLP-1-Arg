@@ -2,10 +2,14 @@ name: Update GLP-1 Prices
 
 on:
   schedule:
-    - cron: '0 3 * * 1-5'   # 12:00 AM ART (UTC-3) Mon–Fri
-    - cron: '0 9 * * 1-5'   #  6:00 AM ART
+    # Las alertas de precios SOLO salen entre las 8 y las 21 ART. Para lograrlo, el
+    # scraper corre únicamente dentro de esa franja: así cualquier email que mande
+    # cae en horario. El primer run del día (8 AM) toma los cambios ocurridos fuera
+    # de horario (de noche) y recién ahí los avisa. ART = UTC-3.
+    - cron: '0 11 * * 1-5'  #  8:00 AM ART (UTC-3) Mon–Fri — primer aviso del día
     - cron: '0 15 * * 1-5'  # 12:00 PM ART
-    - cron: '0 21 * * 1-5'  #  6:00 PM ART
+    - cron: '0 19 * * 1-5'  #  4:00 PM ART
+    - cron: '0 23 * * 1-5'  #  8:00 PM ART
   push:
     branches: [main]
     # Sólo re-corre el scraper cuando cambia el scraper (o sus deps), no cualquier

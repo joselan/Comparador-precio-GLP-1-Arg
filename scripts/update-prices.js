@@ -45,13 +45,23 @@ const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-ch
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 // Cuenta que ENVÍA los emails (la del App Password de Gmail).
 const ADMIN_EMAIL = 'joselanglois@gmail.com';
-// Destinatarios de las alertas. Se puede sobrescribir con ALERT_EMAILS (lista
-// separada por comas); por defecto van al Gmail del admin, a la casilla de Adium
-// y a la lista de difusión del Equipo Especial Diabetes de Adium.
-const ALERT_RECIPIENTS = (process.env.ALERT_EMAILS || 'joselanglois@gmail.com, jlanglois@adium.com.ar, Lista_EquipoEspecialDiabetes@adium.com.ar')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
+// Destinatarios de las alertas. En el "Para" visible va sólo el admin; el equipo
+// va en copia oculta (CCO/BCC) para que no se vean las direcciones entre sí ni
+// haya "responder a todos". La lista de difusión de Adium
+// (Lista_EquipoEspecialDiabetes@) rechaza remitentes externos —mandamos desde
+// Gmail— así que se usan las casillas individuales del equipo. Se pueden
+// sobrescribir con ALERT_TO / ALERT_BCC (listas separadas por coma).
+const ALERT_TO = (process.env.ALERT_TO || 'joselanglois@gmail.com')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+const ALERT_BCC = (process.env.ALERT_BCC || [
+  'mlusso', 'pbarrios', 'gtusman', 'fmaldonado', 'mdelgado', 'ccubasso', 'vacastillo',
+  'asantos', 'pahumada', 'pgonzalez', 'ethomas', 'rdefeo', 'sferreyra', 'mgarrido',
+  'mponferrada', 'vmoyano', 'jlanglois', 'nmancuso', 'vrois', 'sgutierrez', 'elix',
+  'lcano', 'aaudisio', 'lrolon', 'sserpa', 'vkondratiuk', 'amignani',
+].map((u) => `${u}@adium.com.ar`).join(', '))
+  .split(',').map((s) => s.trim()).filter(Boolean);
+// Lista completa (para logs y el email de prueba).
+const ALERT_RECIPIENTS = [...ALERT_TO, ...ALERT_BCC];
 
 // Umbrales de control de cambios de precio (fracción sobre el precio anterior)
 const WARN_CHANGE = parseFloat(process.env.WARN_CHANGE || '0.40');
@@ -451,7 +461,8 @@ async function sendTestEmail() {
   try {
     await transporter.sendMail({
       from: `"GLP-1 Comparador" <${ADMIN_EMAIL}>`,
-      to: ALERT_RECIPIENTS.join(', '),
+      to: ALERT_TO.join(', '),
+      bcc: ALERT_BCC.join(', '),
       subject: '✅ GLP-1 Comparador — email de prueba de alertas',
       html,
     });
@@ -478,7 +489,8 @@ async function sendEmail(changedMeds, newPrices, warnings) {
   try {
     await transporter.sendMail({
       from: `"GLP-1 Comparador" <${ADMIN_EMAIL}>`,
-      to: ALERT_RECIPIENTS.join(', '),
+      to: ALERT_TO.join(', '),
+      bcc: ALERT_BCC.join(', '),
       subject,
       html: buildEmailHtml(changedMeds, newPrices, warnings),
     });
