@@ -480,7 +480,8 @@ async function sendEmail(changedMeds, newPrices, warnings) {
     console.log('  ⚠ GMAIL_APP_PASSWORD no configurado — se omite el email');
     return;
   }
-  const subject = changedMeds.length > 0
+  const hasChanges = changedMeds.length > 0;
+  const subject = hasChanges
     ? `💊 GLP-1 precios actualizados: ${changedMeds.join(', ')}`
     : `⚠ GLP-1 scraper: advertencias (sin cambios de precios)`;
   const nodemailer = require('nodemailer');
@@ -488,15 +489,19 @@ async function sendEmail(changedMeds, newPrices, warnings) {
     service: 'gmail',
     auth: { user: ADMIN_EMAIL, pass: GMAIL_APP_PASSWORD },
   });
+  // Los mails con MODIFICACIONES de precios van a todo el equipo (admin en Para,
+  // equipo en CCO). Los que son SÓLO advertencias (sin cambios de precios) van
+  // únicamente al admin: son operativos/diagnósticos, no le interesan al equipo.
+  const mailOptions = {
+    from: `"${EMAIL_FROM_NAME}" <${ADMIN_EMAIL}>`,
+    to: ALERT_TO.join(', '),
+    subject,
+    html: buildEmailHtml(changedMeds, newPrices, warnings),
+  };
+  if (hasChanges) mailOptions.bcc = ALERT_BCC.join(', ');
   try {
-    await transporter.sendMail({
-      from: `"${EMAIL_FROM_NAME}" <${ADMIN_EMAIL}>`,
-      to: ALERT_TO.join(', '),
-      bcc: ALERT_BCC.join(', '),
-      subject,
-      html: buildEmailHtml(changedMeds, newPrices, warnings),
-    });
-    console.log('  ✉ Email enviado a', ALERT_RECIPIENTS.join(', '));
+    await transporter.sendMail(mailOptions);
+    console.log('  ✉ Email enviado a', (hasChanges ? ALERT_RECIPIENTS : ALERT_TO).join(', '));
   } catch (err) {
     console.error('  ✗ Error enviando email:', err.message);
   }
