@@ -481,6 +481,15 @@ async function sendEmail(changedMeds, newPrices, warnings) {
     return;
   }
   const hasChanges = changedMeds.length > 0;
+  // Ventana de envío al equipo: sólo entre las 8 y las 21 ART. Las corridas
+  // programadas ya caen en esa franja, pero una corrida de DESPLIEGUE (push, al
+  // mergear un cambio del scraper) puede dispararse fuera de horario: en ese
+  // caso el mail va únicamente al admin, para no avisarle al equipo de madrugada.
+  const artHour = parseInt(
+    new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: 'numeric', hour12: false }).format(new Date()),
+    10
+  ) % 24;
+  const enHorario = artHour >= 8 && artHour < 21;
   const subject = hasChanges
     ? `💊 GLP-1 precios actualizados: ${changedMeds.join(', ')}`
     : `⚠ GLP-1 scraper: advertencias (sin cambios de precios)`;
@@ -489,19 +498,20 @@ async function sendEmail(changedMeds, newPrices, warnings) {
     service: 'gmail',
     auth: { user: ADMIN_EMAIL, pass: GMAIL_APP_PASSWORD },
   });
-  // Los mails con MODIFICACIONES de precios van a todo el equipo (admin en Para,
-  // equipo en CCO). Los que son SÓLO advertencias (sin cambios de precios) van
-  // únicamente al admin: son operativos/diagnósticos, no le interesan al equipo.
+  // El equipo (BCC) recibe SÓLO cuando hay modificaciones de precios Y estamos
+  // en horario (8–21 ART). Si es sólo-advertencias, o fuera de horario, el mail
+  // va únicamente al admin (en Para): son operativos o no corresponde molestar.
+  const avisaEquipo = hasChanges && enHorario;
   const mailOptions = {
     from: `"${EMAIL_FROM_NAME}" <${ADMIN_EMAIL}>`,
     to: ALERT_TO.join(', '),
     subject,
     html: buildEmailHtml(changedMeds, newPrices, warnings),
   };
-  if (hasChanges) mailOptions.bcc = ALERT_BCC.join(', ');
+  if (avisaEquipo) mailOptions.bcc = ALERT_BCC.join(', ');
   try {
     await transporter.sendMail(mailOptions);
-    console.log('  ✉ Email enviado a', (hasChanges ? ALERT_RECIPIENTS : ALERT_TO).join(', '));
+    console.log('  ✉ Email enviado a', (avisaEquipo ? ALERT_RECIPIENTS : ALERT_TO).join(', '));
   } catch (err) {
     console.error('  ✗ Error enviando email:', err.message);
   }
