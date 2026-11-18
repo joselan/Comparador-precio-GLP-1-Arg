@@ -543,7 +543,7 @@ async function dumpDiag(page) {
   console.log('\n🔎 DIAGNÓSTICO alfabeta (primera falla del run):');
   console.log('   URL final :', url);
   console.log('   Título    :', JSON.stringify(title));
-  console.log('   #inputs   :', inputCount, '(el buscador esperado es input[name="str"])');
+  console.log('   #inputs   :', inputCount, '(ahora se va directo a /precio/<producto>.html y se espera la tabla de precios)');
   console.log('   Texto (primeros 800 chars):');
   console.log((bodyText || '(vacío)').split('\n').map(l => '   | ' + l).join('\n'));
   try {
@@ -567,38 +567,23 @@ async function getProductPageHtml(browser, searchTerm) {
     });
     await page.setViewport({ width: 1280, height: 800 });
 
-    await page.goto('https://www.alfabeta.net/precio/buscar.html', {
+    // Alfabeta discontinuó el buscador (buscar.html ahora da "404 page not
+    // found"). Vamos directo a la página del producto
+    // (https://www.alfabeta.net/precio/<producto>.html), que ya trae la tabla
+    // de precios de todas sus presentaciones. El searchTerm es el slug exacto
+    // del producto (mounjaro, ozempic, wegovy, dutide, obetide).
+    await page.goto(`https://www.alfabeta.net/precio/${encodeURIComponent(searchTerm)}.html`, {
       waitUntil: 'networkidle2',
       timeout: NAV_TIMEOUT,
     });
 
-    const inputSel = 'input[name="str"], input[type="search"], input[type="text"]';
-    await page.waitForSelector(inputSel, { timeout: 5000 });
-    await page.focus(inputSel);
-    await page.keyboard.type(searchTerm);
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
-      page.keyboard.press('Enter'),
-    ]);
-
-    const resultLink = await page.$('.resultsearch a, .rprod a, a.rprod');
-    if (!resultLink) {
-      const rprod = await page.$('.rprod');
-      if (rprod) {
-        await Promise.all([
-          page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
-          rprod.click(),
-        ]);
-      } else {
-        console.log('  ⚠ No result link found');
-        return null;
-      }
-    } else {
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
-        resultLink.click(),
-      ]);
-    }
+    // La tabla viene en el HTML (página estática). Esperamos a que aparezca
+    // alguna fila con un "$" para no leer una página a medio cargar; si no
+    // aparece, seguimos igual y el parseo/validación posterior lo detecta.
+    await page.waitForFunction(
+      () => /\$\s*[\d.]/.test(document.body ? document.body.innerText : ''),
+      { timeout: 5000 }
+    ).catch(() => {});
 
     console.log(`  Product: ${await page.title()}`);
     return await page.content();
