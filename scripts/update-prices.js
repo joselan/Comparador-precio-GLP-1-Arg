@@ -861,6 +861,16 @@ async function main() {
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
     });
     console.log('\n✅ Precios actualizados en Firebase');
+  } else if (medsWithPrices > 0) {
+    // Sin cambios de precio, pero la verificación con alfabeta fue exitosa:
+    // refrescamos SÓLO la fecha (merge) para que "Actualizado" refleje el último
+    // chequeo. Si no, la web muestra "hace N días sin actualizar" aunque el
+    // scraper ande bien y los precios sigan vigentes (sólo que no cambiaron).
+    await docRef.set(
+      { lastUpdated: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+    console.log('\n✅ Sin cambios de precio — fecha de verificación actualizada en Firebase');
   }
 
   // 2. Guardar snapshot COMPLETO del día (todos los productos, no sólo los que
